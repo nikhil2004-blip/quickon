@@ -31,8 +31,9 @@
 
   // ── Config ────────────────────────────────────────────────────
   const CFG = {
-    sensitivity: 3.0,   // px multiplier — tuned for full HD coverage
-    deadZonePx: 0.3,   // raw delta below this = ignore (kills micro-jitter)
+    sensitivity: 1.5,   // px multiplier — reduced to prevent jitter amplification
+    deadZonePx: 2.0,   // raw delta below this = ignore (kills micro-jitter & sensor noise)
+    emaAlpha: 0.6,     // EMA smoothing factor (0.6 = 60% new, 40% previous) — lower = smoother
     tapMaxMovePx: 12,    // max movement to count as a tap
     tapMaxMs: 300,   // max duration for a tap
     scrollRatio: 2.0,   // scroll sensitivity
@@ -49,6 +50,10 @@
   let _accDx = 0;
   let _accDy = 0;
 
+  // EMA smoothed values — low-pass filtered raw deltas
+  let _emaDx = 0;
+  let _emaDy = 0;
+
   // rAF handle — used to batch mouse moves (one send per frame, ~60/s)
   let _rafId = null;
 
@@ -62,10 +67,9 @@
   // Double-tap detection for keyboard trigger
   let _lastTapTime = 0;
 
-  // Set by reset(); cleared on first pointerdown.
-  // Ensures the accumulator is wiped on the FIRST touch after returning
-  // to the touchpad from another panel — without affecting mid-stroke behaviour.
-  let _firstTouch = true;
+  // Session-level first touch: ensure accumulator wiped ONCE per session,
+  // not per pointer. Cleared only when ALL fingers lift and touchpad regains focus.
+  let _sessionFirstTouch = true;
 
   // Inhibit window: drop all pointer-move sends until this timestamp
   // Used to absorb the OS event burst after returning from a widget action.
@@ -79,6 +83,8 @@
   function _resetSmoothing() {
     _accDx = 0;
     _accDy = 0;
+    _emaDx = 0;
+    _emaDy = 0;
     _scrollAcc = 0;
   }
 
@@ -114,15 +120,26 @@
     }
   }
 
-  // ── Raw delta computation (dead-zone only, no EMA) ───────────
+  // ── Filter pipeline: dead-zone → EMA smoothing → sensitivity ───────────
   // Zero-allocation version: writes into a reused result object instead of
   // creating a new { dx, dy } on every pointermove event (120+ Hz on mobile).
   // Avoids GC pressure that causes periodic micro-jitter on mid-range phones.
-  const _deadResult = { dx: 0, dy: 0 };
-  function _applyDead(rawDx, rawDy) {
-    _deadResult.dx = (Math.abs(rawDx) < CFG.deadZonePx ? 0 : rawDx) * CFG.sensitivity;
-    _deadResult.dy = (Math.abs(rawDy) < CFG.deadZonePx ? 0 : rawDy) * CFG.sensitivity;
-    return _deadResult;
+  const _filterResult = { dx: 0, dy: 0 };
+  function _filterDelta(rawDx, rawDy) {
+    // Step 1: Dead-zone filter — ignore micro-movements below threshold
+    const deadDx = Math.abs(rawDx) < CFG.deadZonePx ? 0 : rawDx;
+    const deadDy = Math.abs(rawDy) < CFG.deadZonePx ? 0 : rawDy;
+
+    // Step 2: EMA low-pass smoothing (exponential moving average)
+    // Filters jitter while preserving fast intentional movements
+    // Lower alpha = more smoothing; higher alpha = more responsive
+    _emaDx = _emaDx * (1 - CFG.emaAlpha) + deadDx * CFG.emaAlpha;
+    _emaDy = _emaDy * (1 - CFG.emaAlpha) + deadDy * CFG.emaAlpha;
+
+    // Step 3: Apply sensitivity AFTER smoothing (prevents jitter amplification)
+    _filterResult.dx = _emaDx * CFG.sensitivity;
+    _filterResult.dy = _emaDy * CFG.sensitivity;
+    return _filterResult;
   }
 
   // ── Gesture helper ────────────────────────────────────────────
@@ -200,8 +217,9 @@
 
     // First touch after a panel switch → reset accumulator to avoid phantom moves
     // from any stale sub-pixel remainder left over from the previous session.
-    if (_firstTouch) {
-      _firstTouch = false;
+    // Only reset on FIRST touch of session (when no pointers are down yet).
+    if (_sessionFirstTouch && _ptrs.size === 0) {
+      _sessionFirstTouch = false;
       _resetSmoothing();
     }
 
@@ -259,8 +277,12 @@
       $touchGlow.style.transform = `translate(${tx}px, ${ty}px)`;
 
       // Single finger → move mouse: accumulate and flush via rAF (~60/s)
-      if (Date.now() < _inhibitUntil) return;  // absorb OS burst after panel switch
-      const { dx, dy } = _applyDead(rawDx, rawDy);
+      // If in inhibit window, clear accumulators and return to prevent burst release
+      if (Date.now() < _inhibitUntil) {
+        _resetSmoothing();
+        return;  // absorb OS burst after panel switch
+      }
+      const { dx, dy } = _filterDelta(rawDx, rawDy);
       _accDx += dx;
       _accDy += dy;
       _scheduleFlush();  // batches all moves in this frame into one send
@@ -359,6 +381,7 @@
     if (_ptrs.size === 0) {
       _resetSmoothing();
       _gestureTriggered = false;
+      _sessionFirstTouch = true;  // allow reset on next session touch
     }
   }, { passive: false });
 
