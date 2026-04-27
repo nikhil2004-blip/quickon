@@ -5,3 +5,4 @@ qrcode[pil]==7.4.2
 zeroconf==0.132.2
 pyyaml==6.0.2
 Pillow==10.4.0
+pystray==0.19.5

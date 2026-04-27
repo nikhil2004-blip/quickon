@@ -16,8 +16,12 @@ import logging
 import os
 import socket
 import sys
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+
+import pystray
+from PIL import Image
 
 import websockets
 from websockets.server import serve, WebSocketServerProtocol
@@ -30,6 +34,13 @@ if getattr(sys, 'frozen', False):
     _SERVER_DIR = _BASE_DIR / "server"
     sys.path.insert(0, str(_SERVER_DIR))
     CLIENT_DIR = _BASE_DIR / "client"
+    
+    # Redirect stdout and stderr to devnull to prevent console write errors
+    # when running with --noconsole
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, 'w')
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, 'w')
 else:
     # Running in normal development environment
     _SERVER_DIR = Path(__file__).parent
@@ -38,7 +49,7 @@ else:
 
 from utils.auth import generate_token, validate_token
 from utils.network import get_local_ips, get_os_name
-from utils.qr import print_startup_banner
+from utils.qr import print_startup_banner, show_qr_image
 from handlers.mouse import (
     handle_mouse_move, handle_mouse_click, handle_mouse_scroll, handle_mouse_button
 )
@@ -290,8 +301,69 @@ async def main() -> None:
         await asyncio.Future()   # run forever
 
 
-if __name__ == "__main__":
+def run_tray_icon(ips: list[str], http_port: int, ws_port: int, token: str):
+    icon_path = _BASE_DIR / "app.ico" if getattr(sys, 'frozen', False) else _SERVER_DIR.parent / "app.ico"
+    
     try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        logger.info("Shutting down — goodbye!")
+        image = Image.open(str(icon_path))
+    except Exception as e:
+        logger.error(f"Failed to load icon from {icon_path}: {e}")
+        # fallback to a blank image
+        image = Image.new('RGB', (64, 64), color='white')
+
+    url = f"http://{ips[0]}:{http_port}" if ips else f"http://127.0.0.1:{http_port}"
+    
+    def on_show_qr(icon, item):
+        logger.info("Show QR Code clicked.")
+        show_qr_image(url, token)
+        
+    def on_exit(icon, item):
+        logger.info("Tray Exit clicked.")
+        icon.stop()
+        os._exit(0)
+
+    menu = pystray.Menu(
+        pystray.MenuItem(f'Token: {token}', lambda: None, enabled=False),
+        pystray.MenuItem('Show QR Code', on_show_qr),
+        pystray.MenuItem('Exit PocketDeck', on_exit)
+    )
+    
+    icon = pystray.Icon("PocketDeck", image, "PocketDeck Server", menu)
+    
+    def setup(icon):
+        icon.visible = True
+        try:
+            icon.notify(f"Server running at {url}\nToken: {token}", "PocketDeck")
+        except:
+            pass
+            
+    if getattr(sys, 'frozen', False):
+        try:
+            show_qr_image(url, token)
+        except Exception as e:
+            logger.error(f"Failed to auto-show QR: {e}")
+            
+    icon.run(setup)
+
+def run_asyncio_loop():
+    # We must create a new event loop for this thread
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(main())
+    except Exception as e:
+        logger.error(f"Event loop failed: {e}")
+
+if __name__ == "__main__":
+    TOKEN = "123456"
+
+    # Start the asyncio server loop in a background daemon thread
+    server_thread = threading.Thread(target=run_asyncio_loop, daemon=True)
+    server_thread.start()
+    
+    ips = get_local_ips()
+    if not ips:
+        ips = ["127.0.0.1"]
+        
+    # Start the blocking system tray loop on the main thread
+    run_tray_icon(ips, HTTP_PORT, WS_PORT, TOKEN)

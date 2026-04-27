@@ -1,5 +1,6 @@
 <div align="center">
-  <h1>📱 PocketDeck</h1>
+  <img src="assets/logo.png" alt="PocketDeck Logo" width="150" style="border-radius: 20px; margin-bottom: 10px;"/>
+  <h1>PocketDeck</h1>
   <p><strong>Your PC, in your pocket.</strong></p>
   <p>A zero-latency, local-network mobile companion app that turns your phone into a premium touchpad, keyboard, and widget controller for your PC.</p>
 </div>
@@ -28,7 +29,8 @@ You do **not** need to install Python or understand code to use PocketDeck!
 1. Double-click the downloaded `PocketDeck.exe` file.
    - *Note: If Windows SmartScreen shows a "Windows protected your PC" warning, click **More info** -> **Run anyway**. This happens because the app is new and not yet digitally signed by a paid publisher.*
    - *Note: If Windows Firewall asks for permission, click **Allow access** so your phone can connect to your PC over the local network.*
-2. A terminal window will open and display a large QR code.
+2. A small window will pop up displaying a large QR code.
+3. **Background Mode**: After connecting, you can close the QR window. The app will continue running quietly in your Windows System Tray (bottom right, near the clock). Right-click the PocketDeck tray icon to show the QR code again or to exit.
 
 ### Step 3: Connect Your Phone
 1. Ensure your phone and your PC are connected to the **same Wi-Fi network**.
