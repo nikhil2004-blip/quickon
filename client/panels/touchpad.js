@@ -74,7 +74,71 @@
     _scrollAcc = 0;
   }
 
-  // Adaptive smoothing removed to fix lag; relying on raw hardware deltas.
+  // ── rAF batch flush ───────────────────────────────────────────
+  function _scheduleFlush() {
+    if (_rafId !== null) return;
+    _rafId = requestAnimationFrame(_flush);
+  }
+
+  function _flush() {
+    _rafId = null;
+    
+    const sendDx = Math.round(_accDx);
+    const sendDy = Math.round(_accDy);
+    
+    if (sendDx !== 0 || sendDy !== 0) {
+      PocketDeck.send({ type: 'mouse_move', dx: sendDx, dy: sendDy });
+      // Keep the fractional remainder! Losing this causes jagged circles.
+      _accDx -= sendDx;
+      _accDy -= sendDy;
+    }
+  }
+
+  // ── Velocity-adaptive filter (One Euro Filter principle) ──────
+  //
+  // Fixed EMA has an unavoidable trade-off:
+  //   Low alpha  → smooth but laggy on fast moves (big circles trail behind)
+  //   High alpha → responsive but jittery on slow moves
+  //
+  // Solution: alpha scales with speed.
+  //   Fast movement  → alpha near 1.0 → raw passthrough → zero lag
+  //   Slow movement  → alpha near 0.4 → heavy smoothing → zero jitter
+  //
+  function _smooth(rawDx, rawDy) {
+    const now = performance.now();
+
+    // Fresh stroke after inactivity — wipe stale state entirely
+    if (now - _lastMoveTime > INACTIVITY_RESET_MS) {
+      _resetSmoothing();
+    }
+    _lastMoveTime = now;
+
+    // Dead zone: ignore sub-pixel noise
+    const dx = Math.abs(rawDx) < CFG.deadZonePx ? 0 : rawDx;
+    const dy = Math.abs(rawDy) < CFG.deadZonePx ? 0 : rawDy;
+
+    // Speed of this event (magnitude of delta vector)
+    const speed = Math.sqrt(dx * dx + dy * dy);
+
+    // Map speed → alpha: slow=alphaMin, fast=alphaMax (clamped)
+    const t = Math.min(1, speed / CFG.speedThreshold);
+    const alpha = CFG.alphaMin + t * (CFG.alphaMax - CFG.alphaMin);
+
+    // Initialize filter state if starting fresh to prevent stickiness / startup lag
+    if (_filtX === null || _filtY === null) {
+      _filtX = dx;
+      _filtY = dy;
+    } else {
+      // Apply adaptive filter
+      _filtX = alpha * dx + (1 - alpha) * _filtX;
+      _filtY = alpha * dy + (1 - alpha) * _filtY;
+    }
+
+    return {
+      dx: _filtX * CFG.sensitivity,
+      dy: _filtY * CFG.sensitivity,
+    };
+  }
 
   // ── Gesture helper ────────────────────────────────────────────
   function _triggerGesture(fingerCount, direction) {
@@ -87,10 +151,11 @@
       '3-left':  { type: 'key_tap', key: 'alt+shift+tab' },   // Switch app backward
       '3-right': { type: 'key_tap', key: 'alt+tab' },         // Switch app forward
       // 4-finger: swipe direction = pan direction (like a real trackpad)
+      // 4-finger: swipe direction = pan direction (like a real trackpad)
       // Swipe from right to left (LEFT swipe) pulls the RIGHT virtual desktop into view
       // Swipe from left to right (RIGHT swipe) pulls the LEFT virtual desktop into view
-      '4-left':  { type: 'key_tap', key: 'win+ctrl+right' },   // Virtual desktop left
-      '4-right': { type: 'key_tap', key: 'win+ctrl+left' },  // Virtual desktop right
+      '4-left':  { type: 'key_tap', key: 'win+ctrl+right' },  // Virtual desktop right
+      '4-right': { type: 'key_tap', key: 'win+ctrl+left' },   // Virtual desktop left
       '4-up':    { type: 'key_tap', key: 'win+tab' },         // Task View
       '4-down':  { type: 'key_tap', key: 'win+d' },           // Show desktop
     };
@@ -140,21 +205,6 @@
     }
   }
 
-  // ── rAF loop for smooth mouse movement ────────────────────────
-  function _sendBatch() {
-    if (_accDx !== 0 || _accDy !== 0) {
-      const sendDx = Math.round(_accDx);
-      const sendDy = Math.round(_accDy);
-      
-      if (sendDx !== 0 || sendDy !== 0) {
-        PocketDeck.send({ type: 'mouse_move', dx: sendDx, dy: sendDy });
-        _accDx -= sendDx;
-        _accDy -= sendDy;
-      }
-    }
-    _rafId = null;
-  }
-
   // ── Pointer event handlers ─────────────────────────────────────
   $touchpad.addEventListener('pointerdown', e => {
     e.preventDefault();
@@ -163,10 +213,6 @@
     // ALWAYS reset smoothing on a fresh touch — this is the #1 jitter killer.
     // After any period of not touching, the EMA/accumulators must start clean.
     _resetSmoothing();
-    if (_rafId) {
-      cancelAnimationFrame(_rafId);
-      _rafId = null;
-    }
 
     _ptrs.set(e.pointerId, {
       id: e.pointerId,
@@ -196,20 +242,18 @@
     const count = _ptrs.size;
 
     if (count === 1) {
-      // Single finger → batch with requestAnimationFrame to prevent network flooding and lag
-      _accDx += rawDx * CFG.sensitivity;
-      _accDy += rawDy * CFG.sensitivity;
-      
-      if (!_rafId) {
-        _rafId = requestAnimationFrame(_sendBatch);
-      }
+      // Single finger → move mouse with EMA smoothing
+      const { dx, dy } = _smooth(rawDx, rawDy);
+      _accDx += dx;
+      _accDy += dy;
+      _scheduleFlush();
 
     } else if (count === 2) {
       // Two-finger drag → scroll
       _scrollAcc += rawDy;
       if (Math.abs(_scrollAcc) >= 3) {
         const clicks = Math.round(_scrollAcc / (3 / CFG.scrollRatio));
-        // Positive clicks to match standard trackpads
+        // Positive dy = drag down = scroll content down (natural scrolling)
         PocketDeck.send({ type: 'mouse_scroll', dx: 0, dy: clicks });
         _scrollAcc = 0;
       }

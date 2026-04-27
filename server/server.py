@@ -92,7 +92,7 @@ async def handle_connection(ws: WebSocketServerProtocol) -> None:
 
     provided_token = msg.get("token", "")
     if not validate_token(provided_token, TOKEN):
-        logger.warning(f"Bad token from {client_addr}. Provided: {provided_token!r}, Expected: {TOKEN!r}")
+        logger.warning(f"Bad token from {client_addr}")
         await ws.send(json.dumps({"type": "auth_fail"}))
         await ws.close(4003, "bad token")
         return
