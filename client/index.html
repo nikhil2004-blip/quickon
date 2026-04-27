@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <meta name="description" content="PocketDeck — Control your PC from your phone. Touchpad, keyboard, terminal, and widgets over your local network." />
+  <meta name="theme-color" content="#0f0f13" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+
+  <title>PocketDeck</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="style.css" />
+
+  <!-- xterm.js CDN (used by terminal panel — Phase 3) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" />
+</head>
+<body>
+  <!-- ═══════════════════════════════════════════
+       Connection Screen (shown until WebSocket connects)
+  ═══════════════════════════════════════════════ -->
+  <div id="connect-screen" class="screen active">
+    <div class="connect-card">
+      <div class="logo">
+        <span class="logo-icon">📱</span>
+        <h1>PocketDeck</h1>
+        <p class="tagline">Your PC, in your pocket</p>
+      </div>
+
+      <div id="connect-status" class="status-pill status-connecting">
+        <span class="status-dot"></span>
+        <span id="connect-label">Connecting…</span>
+      </div>
+
+      <div class="manual-entry" id="manual-entry">
+        <p class="hint">Enter your PC's IP address manually:</p>
+        <div class="input-row">
+          <input
+            type="text"
+            id="host-input"
+            placeholder="192.168.1.x"
+            autocomplete="off"
+            autocorrect="off"
+            autocapitalize="none"
+            spellcheck="false"
+          />
+          <button id="connect-btn" class="btn btn-primary">Connect</button>
+        </div>
+
+        <p class="hint">Auth token (shown on your PC):</p>
+        <div class="input-row">
+          <input
+            type="text"
+            id="token-input"
+            placeholder="ABC123"
+            maxlength="8"
+            autocomplete="off"
+            autocorrect="off"
+            autocapitalize="characters"
+            spellcheck="false"
+          />
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       Main App (shown after auth)
+  ═══════════════════════════════════════════════ -->
+  <div id="app-screen" class="screen">
+
+    <!-- Top bar: status + panel tabs -->
+    <header class="top-bar">
+      <div class="connection-indicator">
+        <span class="status-dot" id="ws-dot"></span>
+        <span id="ws-label">Connected</span>
+      </div>
+      <nav class="tab-bar" role="tablist">
+        <button class="tab active" data-panel="touchpad" id="tab-touchpad" role="tab">Touchpad</button>
+        <button class="tab" data-panel="keyboard" id="tab-keyboard" role="tab">Keys</button>
+        <button class="tab" data-panel="terminal" id="tab-terminal" role="tab">Terminal</button>
+        <button class="tab" data-panel="widgets"  id="tab-widgets"  role="tab">Widgets</button>
+        <button class="tab" data-panel="media"    id="tab-media"    role="tab">Media</button>
+      </nav>
+    </header>
+
+    <!-- Panel container -->
+    <main class="panel-container">
+
+      <!-- Touchpad Panel -->
+      <section class="panel active" id="panel-touchpad" role="tabpanel">
+        <div id="touchpad" class="touchpad">
+          <div class="touchpad-hint">Drag to move · Tap to click · Two-finger tap = right click</div>
+        </div>
+
+      </section>
+
+      <!-- Keyboard Panel (Phase 2) -->
+      <section class="panel" id="panel-keyboard" role="tabpanel">
+        <div class="coming-soon">
+          <span>⌨️</span>
+          <p>Keyboard — Phase 2</p>
+        </div>
+      </section>
+
+      <!-- Terminal Panel (Phase 3) -->
+      <section class="panel" id="panel-terminal" role="tabpanel">
+        <div id="terminal-container" style="width: 100%; height: 100%; overflow: hidden; background-color: #000; padding: 4px;"></div>
+      </section>
+
+      <!-- Widgets Panel (Phase 5) -->
+      <section class="panel" id="panel-widgets" role="tabpanel">
+        <div id="widgets-grid" class="widgets-grid">
+          <!-- Populated by widgets.js -->
+          <div class="coming-soon">
+            <span>🚀</span>
+            <p>Widgets — Phase 5</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Media Panel (Phase 6) -->
+      <section class="panel" id="panel-media" role="tabpanel">
+        <div class="coming-soon">
+          <span>🎵</span>
+          <p>Media — Phase 6</p>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Scripts — order matters -->
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+  <script src="panels/touchpad.js?v=2"></script>
+  <script src="panels/keyboard.js?v=2"></script>
+  <script src="panels/terminal.js?v=2"></script>
+  <script src="panels/widgets.js?v=2"></script>
+  <script src="panels/media.js?v=2"></script>
+  <script src="app.js?v=2"></script>
+</body>
+</html>

@@ -1,0 +1,357 @@
+/* ═══════════════════════════════════════════════════════════════
+   PocketDeck — style.css
+   Dark-mode first. Premium mobile UI.
+   No utility frameworks — full control.
+═══════════════════════════════════════════════════════════════ */
+
+/* ── Design tokens ─────────────────────────────────────────── */
+:root {
+  --bg-base:     #0f0f13;
+  --bg-surface:  #18181f;
+  --bg-raised:   #222230;
+  --bg-overlay:  #2a2a3a;
+
+  --accent:      #6366f1;       /* indigo */
+  --accent-glow: rgba(99,102,241,.25);
+  --accent-dim:  #4f52cc;
+
+  --success:     #22c55e;
+  --warning:     #f59e0b;
+  --danger:      #ef4444;
+
+  --text-primary:   #f0f0f6;
+  --text-secondary: #a0a0b8;
+  --text-muted:     #606078;
+
+  --border:      rgba(255,255,255,.08);
+  --border-strong: rgba(255,255,255,.15);
+
+  --radius-sm:   8px;
+  --radius-md:   14px;
+  --radius-lg:   20px;
+  --radius-pill: 999px;
+
+  --shadow-sm:   0 1px 3px rgba(0,0,0,.4);
+  --shadow-md:   0 4px 16px rgba(0,0,0,.5);
+  --shadow-glow: 0 0 20px var(--accent-glow);
+
+  --font-sans:   'Inter', system-ui, -apple-system, sans-serif;
+  --font-mono:   'JetBrains Mono', 'Fira Code', monospace;
+
+  --tab-h:       48px;
+  --topbar-h:    56px;
+
+}
+
+/* ── Reset & base ───────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%; width: 100%;
+  overflow: hidden;           /* single-page app, no scroll */
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: none;         /* prevent browser default touches */
+  user-select: none;
+}
+
+/* Google Fonts — loaded async by browser if available */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+
+/* ── Screen system ──────────────────────────────────────────── */
+.screen {
+  position: fixed; inset: 0;
+  display: none;
+  opacity: 0;
+  transition: opacity .25s ease;
+}
+.screen.active {
+  display: flex;
+  flex-direction: column;
+  opacity: 1;
+}
+
+/* ── Connection screen ──────────────────────────────────────── */
+#connect-screen {
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(ellipse at 50% 30%, rgba(99,102,241,.15) 0%, transparent 70%),
+              var(--bg-base);
+  padding: 24px;
+}
+
+.connect-card {
+  width: 100%;
+  max-width: 380px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 32px 24px;
+  box-shadow: var(--shadow-md);
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.logo {
+  text-align: center;
+}
+.logo-icon { font-size: 48px; display: block; margin-bottom: 8px; }
+.logo h1 { font-size: 28px; font-weight: 700; letter-spacing: -.5px; }
+.tagline { color: var(--text-secondary); font-size: 14px; margin-top: 4px; }
+
+/* Status pill */
+.status-pill {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  border-radius: var(--radius-pill);
+  font-size: 13px;
+  font-weight: 500;
+  align-self: center;
+}
+.status-connecting { background: rgba(245,158,11,.12); color: var(--warning); }
+.status-ok         { background: rgba(34,197,94,.12);  color: var(--success); }
+.status-error      { background: rgba(239,68,68,.12);  color: var(--danger);  }
+
+.status-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.status-connecting .status-dot {
+  animation: pulse 1.2s ease infinite;
+}
+@keyframes pulse {
+  0%,100% { opacity: 1; }
+  50%      { opacity: .3; }
+}
+
+.manual-entry { display: flex; flex-direction: column; gap: 8px; }
+.hint { font-size: 12px; color: var(--text-muted); }
+
+.input-row {
+  display: flex; gap: 8px;
+}
+input[type="text"] {
+  flex: 1;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 15px;
+  padding: 10px 12px;
+  outline: none;
+  transition: border-color .15s;
+}
+input[type="text"]:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+/* ── Buttons ────────────────────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 10px 16px;
+  transition: background .15s, transform .1s, box-shadow .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.btn:active { transform: scale(.96); }
+
+.btn-primary {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 2px 8px var(--accent-glow);
+}
+.btn-primary:hover { background: var(--accent-dim); }
+.btn-primary:active { background: var(--accent-dim); box-shadow: none; }
+
+/* ── App screen layout ──────────────────────────────────────── */
+#app-screen {
+  background: var(--bg-base);
+}
+
+.top-bar {
+  height: var(--topbar-h);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.connection-indicator {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--text-secondary);
+  min-width: 70px;
+}
+#ws-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); }
+#ws-dot.disconnected { background: var(--danger); animation: pulse 1s infinite; }
+
+/* Tab bar */
+.tab-bar {
+  display: flex;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex: 1;
+}
+.tab-bar::-webkit-scrollbar { display: none; }
+
+.tab {
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 7px 14px;
+  white-space: nowrap;
+  transition: color .15s, background .15s;
+  -webkit-tap-highlight-color: transparent;
+}
+.tab.active {
+  background: var(--accent);
+  color: #fff;
+}
+.tab:not(.active):hover { color: var(--text-primary); background: var(--bg-raised); }
+
+/* Panel container */
+.panel-container {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+.panel {
+  position: absolute; inset: 0;
+  display: none;
+  flex-direction: column;
+}
+.panel.active { display: flex; }
+
+/* ── Touchpad panel ─────────────────────────────────────────── */
+.touchpad {
+  flex: 1;
+  background: var(--bg-surface);
+  margin: 12px 12px 0;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  position: relative;
+  cursor: crosshair;
+  overflow: hidden;
+  /* Prevent any default scroll/zoom behavior */
+  touch-action: none;
+}
+
+.touchpad::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: radial-gradient(ellipse at 50% 50%, rgba(99,102,241,.04) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+.touchpad-hint {
+  position: absolute;
+  bottom: 12px; left: 0; right: 0;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  pointer-events: none;
+  user-select: none;
+}
+
+
+
+/* ── Coming soon placeholder ────────────────────────────────── */
+.coming-soon {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+.coming-soon span { font-size: 48px; }
+
+/* ── Widgets grid ────────────────────────────────────────────── */
+.widgets-grid {
+  flex: 1;
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  padding: 12px;
+  overflow-y: auto;
+  align-content: start;
+}
+
+.widget-btn {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 90px;
+  padding: 16px;
+  font-size: 13px;
+  font-weight: 500;
+  transition: background .12s, transform .1s, border-color .12s;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+}
+.widget-btn:active {
+  transform: scale(.95);
+  border-color: var(--accent);
+  background: var(--bg-raised);
+}
+.widget-btn .widget-icon { font-size: 28px; }
+
+/* ── Sensitivity slider row ──────────────────────────────────── */
+#sens-slider {
+  -webkit-appearance: none;
+  height: 4px;
+  border-radius: 4px;
+  background: var(--bg-raised);
+  outline: none;
+}
+#sens-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  box-shadow: 0 0 6px var(--accent-glow);
+}
+
+/* ── Gesture flash overlay ───────────────────────────────────── */
+#gesture-flash {
+  font-family: var(--font-sans);
+  letter-spacing: .5px;
+  backdrop-filter: blur(8px);
+}
+
+/* ── Utility ─────────────────────────────────────────────────── */
+.hidden { display: none !important; }
