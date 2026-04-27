@@ -32,8 +32,8 @@
   // ── Config ────────────────────────────────────────────────────
   const CFG = {
     sensitivity: 1.5,   // px multiplier — reduced to prevent jitter amplification
-    deadZonePx: 2.0,   // raw delta below this = ignore (kills micro-jitter & sensor noise)
-    emaAlpha: 0.6,     // EMA smoothing factor (0.6 = 60% new, 40% previous) — lower = smoother
+    deadZonePx: 0.8,   // raw delta below this = ignore — lowered to allow precise slow movements
+    emaAlpha: 0.75,    // EMA smoothing factor (0.75 = 75% new, 25% previous) — higher = more responsive to slow inputs
     tapMaxMovePx: 12,    // max movement to count as a tap
     tapMaxMs: 300,   // max duration for a tap
     scrollRatio: 2.0,   // scroll sensitivity
@@ -59,6 +59,10 @@
 
   // Scroll accumulator
   let _scrollAcc = 0;
+
+  // Pinch zoom tracking: distance between two fingers
+  let _lastPinchDist = 0;
+  let _pinchAccum = 0;
 
   // Gesture tracking
   let _gestureStartPtrs = [];
@@ -86,6 +90,8 @@
     _emaDx = 0;
     _emaDy = 0;
     _scrollAcc = 0;
+    _lastPinchDist = 0;
+    _pinchAccum = 0;
   }
 
   // ── rAF-gated flush — ONE send per animation frame (~60/s) ──────
@@ -140,6 +146,15 @@
     _filterResult.dx = _emaDx * CFG.sensitivity;
     _filterResult.dy = _emaDy * CFG.sensitivity;
     return _filterResult;
+  }
+
+  // ── Pinch-zoom helper ─────────────────────────────────────────
+  function _calcPinchDistance(ptrs) {
+    if (ptrs.size !== 2) return 0;
+    const points = Array.from(ptrs.values());
+    const dx = points[0].x - points[1].x;
+    const dy = points[0].y - points[1].y;
+    return Math.sqrt(dx * dx + dy * dy);
   }
 
   // ── Gesture helper ────────────────────────────────────────────
@@ -288,13 +303,36 @@
       _scheduleFlush();  // batches all moves in this frame into one send
 
     } else if (count === 2) {
-      // Two-finger drag → scroll
+      // Two-finger drag → scroll (natural direction) & pinch → zoom
+      
+      // Natural scroll: two-finger drag DOWN → scroll DOWN (not reversed)
+      // Accumulate vertical scroll movement
       _scrollAcc += rawDy;
       if (Math.abs(_scrollAcc) >= 5) {
+        // Positive dy (drag down) → positive scroll (scroll down) — natural scroll
         const clicks = Math.round(_scrollAcc / (5 / CFG.scrollRatio));
         PocketDeck.send({ type: 'mouse_scroll', dx: 0, dy: clicks });
-        _scrollAcc -= clicks * (5 / CFG.scrollRatio); // keep remainder instead of hard-reset
+        _scrollAcc -= clicks * (5 / CFG.scrollRatio);
       }
+
+      // Pinch zoom detection: calculate distance between two fingers
+      const currDist = _calcPinchDistance(_ptrs);
+      if (_lastPinchDist > 0) {
+        const distDelta = currDist - _lastPinchDist;
+        _pinchAccum += distDelta;
+
+        // Zoom when accumulated pinch distance crosses threshold
+        // Positive = expanding (zoom in), Negative = contracting (zoom out)
+        if (Math.abs(_pinchAccum) >= 15) {
+          const zoomDirection = _pinchAccum > 0 ? 'ctrl+plus' : 'ctrl+minus';
+          const zoomSteps = Math.round(Math.abs(_pinchAccum) / 15);
+          for (let i = 0; i < zoomSteps; i++) {
+            PocketDeck.send({ type: 'key_tap', key: zoomDirection });
+          }
+          _pinchAccum = 0;  // reset accumulator
+        }
+      }
+      _lastPinchDist = currDist;
 
     } else if (count >= 3 && !_gestureTriggered) {
       // Multi-finger gesture detection

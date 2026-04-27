@@ -122,13 +122,15 @@ def handle_mouse_click(button: str, double: bool = False) -> None:
 
 def handle_mouse_scroll(dx: float, dy: float) -> None:
     """
-    Scroll the wheel.
-    Client convention: dy > 0 = two-finger drag DOWN = scroll content DOWN.
-    Windows WHEEL:     positive = scroll UP  →  negate dy.
+    Scroll the wheel (natural scroll direction).
+    Client convention: dy > 0 = two-finger drag DOWN = scroll DOWN (content moves up).
+    Windows WHEEL:     positive = scroll UP,  negative = scroll DOWN.
+    Natural scroll:    drag DOWN (dy > 0) → negate → negative WHEEL → scroll DOWN ✓
     WHEEL_DELTA = 120 per notch; scale smoothly by 30 per unit from client.
     """
     if _IS_WINDOWS:
         if dy != 0:
+            # Natural scroll: negate dy so drag down (dy > 0) becomes scroll down (neg WHEEL)
             _send_mouse(MOUSE_WHEEL, data=int(-dy * 30))
         if dx != 0:
             _send_mouse(MOUSE_HWHEEL, data=int(dx * 30))
