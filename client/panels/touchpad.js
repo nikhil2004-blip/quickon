@@ -305,6 +305,8 @@
         setTimeout(() => {
           if (_ptrs.size === 0 && !_gestureTriggered) {
             PocketDeck.send({ type: 'mouse_click', button: 'left' });
+            // Show keyboard bottom sheet — same as native keyboard popup on tap
+            _showKeyboard();
           }
         }, 80);
       } else if (fingerCountAtTap === 2) {
@@ -334,6 +336,203 @@
 
 
 
+  // ── Keyboard bottom sheet ─────────────────────────────────────
+  // Built once, toggled via CSS class. Slides up like the native
+  // Android system keyboard.
+
+  let _kbdSheet = null;         // the DOM element
+  let _kbdVisible = false;
+  const _mods = { ctrl: false, alt: false, shift: false, win: false };
+
+  const KEY_MAP = {
+    '⌫': 'backspace', '↵': 'enter', '⏎': 'enter',
+  };
+  const ROWS = [
+    ['1','2','3','4','5','6','7','8','9','0','-','=','⌫'],
+    ['Q','W','E','R','T','Y','U','I','O','P','[',']'],
+    ['A','S','D','F','G','H','J','K','L',';',"'",'\u21b5'],
+    ['Z','X','C','V','B','N','M',',','.','/']
+  ];
+
+  function _sendKey(key) {
+    const activeMods = Object.entries(_mods).filter(([,v])=>v).map(([k])=>k);
+    const combo = activeMods.length ? [...activeMods, key].join('+') : key;
+    PocketDeck.send({ type: 'key_tap', key: combo });
+    // Auto-release sticky mods after one keystroke
+    Object.keys(_mods).forEach(k => {
+      if (_mods[k]) {
+        _mods[k] = false;
+        const b = _kbdSheet && _kbdSheet.querySelector(`#ks-mod-${k}`);
+        if (b) b.classList.remove('active');
+      }
+    });
+  }
+
+  function _toggleMod(name) {
+    _mods[name] = !_mods[name];
+    const b = _kbdSheet && _kbdSheet.querySelector(`#ks-mod-${name}`);
+    if (b) b.classList.toggle('active', _mods[name]);
+  }
+
+  function _makeKey(label, keyName, cls) {
+    const btn = document.createElement('button');
+    btn.className = cls;
+    btn.textContent = label;
+    btn.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      _sendKey(keyName);
+    });
+    return btn;
+  }
+
+  function _buildSheet() {
+    if (_kbdSheet) return;   // already built
+
+    const sheet = document.createElement('div');
+    sheet.id = 'kbd-sheet';
+    sheet.className = 'kbd-sheet';
+
+    // ── Handle bar (swipe down to dismiss) ─────────────────────
+    const handle = document.createElement('div');
+    handle.className = 'kbd-sheet-handle-row';
+    handle.innerHTML = `
+      <div class="kbd-sheet-handle"></div>
+      <button class="kbd-sheet-close" id="kbd-sheet-close" aria-label="Hide keyboard">✕</button>
+    `;
+    sheet.appendChild(handle);
+
+    // ── Bulk-type row ───────────────────────────────────────────
+    const bulkRow = document.createElement('div');
+    bulkRow.className = 'kbd-sheet-bulk';
+    bulkRow.innerHTML = `
+      <input type="text" id="kbd-sheet-text"
+        placeholder="Type here and press Send…"
+        autocomplete="off" autocorrect="off"
+        autocapitalize="none" spellcheck="false" />
+      <button class="kbd-sheet-send" id="kbd-sheet-send">Send</button>
+    `;
+    sheet.appendChild(bulkRow);
+
+    // ── Modifier row ────────────────────────────────────────────
+    const modRow = document.createElement('div');
+    modRow.className = 'kbs-row';
+    [
+      ['Esc','esc',null], ['Ctrl',null,'ctrl'],
+      ['Alt',null,'alt'], ['\u2756Win',null,'win'],
+      ['Shift',null,'shift'], ['Tab','tab',null],
+    ].forEach(([label, key, mod]) => {
+      const btn = document.createElement('button');
+      btn.className = 'kbs-key kbs-mod';
+      btn.textContent = label;
+      if (mod) {
+        btn.id = `ks-mod-${mod}`;
+        btn.addEventListener('pointerdown', e => {
+          e.preventDefault(); e.stopPropagation();
+          _toggleMod(mod);
+        });
+      } else {
+        btn.addEventListener('pointerdown', e => {
+          e.preventDefault(); e.stopPropagation();
+          _sendKey(key);
+        });
+      }
+      modRow.appendChild(btn);
+    });
+    sheet.appendChild(modRow);
+
+    // ── QWERTY rows ─────────────────────────────────────────────
+    ROWS.forEach(rowKeys => {
+      const row = document.createElement('div');
+      row.className = 'kbs-row';
+      rowKeys.forEach(k => {
+        const keyName = KEY_MAP[k] || k.toLowerCase();
+        const isWide  = k === '⌫' || k === '↵';
+        row.appendChild(_makeKey(k, keyName, `kbs-key${isWide ? ' kbs-wide' : ''}`));
+      });
+      sheet.appendChild(row);
+    });
+
+    // ── Bottom row: space + arrows ──────────────────────────────
+    const bottomRow = document.createElement('div');
+    bottomRow.className = 'kbs-row';
+    const spaceBtn = document.createElement('button');
+    spaceBtn.className = 'kbs-key kbs-space';
+    spaceBtn.textContent = 'Space';
+    spaceBtn.addEventListener('pointerdown', e => {
+      e.preventDefault(); e.stopPropagation();
+      _sendKey('space');
+    });
+    bottomRow.appendChild(spaceBtn);
+    [['\u2190','left'],['\u2191','up'],['\u2193','down'],['\u2192','right']].forEach(([lbl,k]) => {
+      const b = document.createElement('button');
+      b.className = 'kbs-key kbs-arrow';
+      b.textContent = lbl;
+      b.addEventListener('pointerdown', e => {
+        e.preventDefault(); e.stopPropagation();
+        _sendKey(k);
+      });
+      bottomRow.appendChild(b);
+    });
+    sheet.appendChild(bottomRow);
+
+    // ── Wire close/send ─────────────────────────────────────────
+    // Close button
+    handle.querySelector('#kbd-sheet-close').addEventListener('pointerdown', e => {
+      e.preventDefault(); e.stopPropagation();
+      _hideKeyboard();
+    });
+
+    // Bulk send
+    bulkRow.querySelector('#kbd-sheet-send').addEventListener('pointerdown', e => {
+      e.preventDefault(); e.stopPropagation();
+      const input = bulkRow.querySelector('#kbd-sheet-text');
+      if (input.value) {
+        PocketDeck.send({ type: 'text_type', text: input.value });
+        input.value = '';
+      }
+    });
+
+    // ── Swipe-down-to-dismiss on handle ─────────────────────────
+    let _swipeStartY = null;
+    handle.addEventListener('pointerdown', e => {
+      _swipeStartY = e.clientY;
+      handle.setPointerCapture(e.pointerId);
+    }, { passive: true });
+    handle.addEventListener('pointermove', e => {
+      if (_swipeStartY === null) return;
+      const dy = e.clientY - _swipeStartY;
+      if (dy > 0) sheet.style.transform = `translateY(${dy}px)`;
+    }, { passive: true });
+    handle.addEventListener('pointerup', e => {
+      const dy = e.clientY - (_swipeStartY || e.clientY);
+      _swipeStartY = null;
+      sheet.style.transform = '';
+      if (dy > 60) _hideKeyboard();
+    }, { passive: true });
+
+    // Stop touchpad pointer events from leaking into the sheet
+    sheet.addEventListener('pointerdown', e => e.stopPropagation());
+
+    document.getElementById('panel-touchpad').appendChild(sheet);
+    _kbdSheet = sheet;
+  }
+
+  function _showKeyboard() {
+    _buildSheet();   // no-op if already built
+    if (_kbdVisible) return;
+    _kbdVisible = true;
+    // Force reflow before adding class so CSS transition fires
+    _kbdSheet.getBoundingClientRect();
+    _kbdSheet.classList.add('visible');
+  }
+
+  function _hideKeyboard() {
+    if (!_kbdSheet || !_kbdVisible) return;
+    _kbdVisible = false;
+    _kbdSheet.classList.remove('visible');
+  }
+
   // ── Sensitivity slider (injected into panel) ──────────────────
   const $panel = document.getElementById('panel-touchpad');
   const $sliderRow = document.createElement('div');
@@ -352,32 +551,20 @@
     document.getElementById('sens-val').textContent = CFG.sensitivity + '×';
   });
 
-  // ── Public API — called by app.js on panel switch ─────────────
-  // Hard-resets EVERYTHING so the first touch after a panel switch
-  // has zero stale state. Without this:
-  //   1. _filtX/_filtY hold velocity from before the switch → cursor drifts
-  //   2. _ptrs may have ghost entries if finger was down during the tab tap
-  //   3. A pending rAF fires with stale _accDx/_accDy → phantom move
+  // ── Public API ────────────────────────────────────────────────
   window.TouchpadPanel = {
     reset() {
-      // Cancel any pending rAF flush — its accumulated values are stale
-      if (_rafId !== null) {
-        cancelAnimationFrame(_rafId);
-        _rafId = null;
-      }
-      // Release all tracked pointers (prevent ghost-finger deltas on next touch)
-      _ptrs.forEach((_, id) => {
-        try { $touchpad.releasePointerCapture(id); } catch (_) {}
-      });
+      if (_rafId !== null) { cancelAnimationFrame(_rafId); _rafId = null; }
+      _ptrs.forEach((_, id) => { try { $touchpad.releasePointerCapture(id); } catch (_) {} });
       _ptrs.clear();
-      // Wipe all smoothing/accumulator state
       _resetSmoothing();
-      // Clear gesture state
-      _gestureTriggered  = false;
-      _gestureStartPtrs  = [];
-      _lastMoveTime      = 0;
+      _gestureTriggered = false;
+      _gestureStartPtrs = [];
+      _lastMoveTime     = 0;
+      _hideKeyboard();
     },
+    showKeyboard:  _showKeyboard,
+    hideKeyboard:  _hideKeyboard,
   };
 
 })();
-

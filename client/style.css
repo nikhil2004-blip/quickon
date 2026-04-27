@@ -741,3 +741,174 @@ input[type="text"]:focus {
 
 .media-tap { transform: scale(.90) !important; }
 
+
+/* ═══════════════════════════════════════════════════════════════
+   KEYBOARD BOTTOM SHEET
+   Slides up from the bottom of the touchpad panel, just like
+   the native Android system keyboard.
+═══════════════════════════════════════════════════════════════ */
+
+/* The sheet itself — positioned absolute inside panel-touchpad */
+.kbd-sheet {
+  position: absolute;
+  bottom: 0; left: 0; right: 0;
+  z-index: 50;
+
+  /* Native keyboard glass-dark look */
+  background: #1a1a24;
+  border-top: 1px solid rgba(255,255,255,.1);
+  border-radius: 16px 16px 0 0;
+
+  padding: 0 4px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+
+  /* Slide UP animation — same easing as iOS keyboard */
+  transform: translateY(100%);
+  transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+
+  /* Prevent pointer events reaching the touchpad while sheet is open */
+  touch-action: none;
+}
+.kbd-sheet.visible {
+  transform: translateY(0);
+}
+
+/* Handle row (pill + close button) */
+.kbd-sheet-handle-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px 4px;
+  position: relative;
+}
+.kbd-sheet-handle {
+  width: 36px; height: 4px;
+  border-radius: 99px;
+  background: rgba(255,255,255,.2);
+  flex-shrink: 0;
+}
+.kbd-sheet-close {
+  position: absolute;
+  right: 8px;
+  top: 50%; transform: translateY(-50%);
+  background: rgba(255,255,255,.08);
+  border: none;
+  border-radius: 50%;
+  color: var(--text-secondary);
+  width: 28px; height: 28px;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  touch-action: manipulation;
+}
+.kbd-sheet-close:active { background: rgba(255,255,255,.18); color: #fff; }
+
+/* Bulk-type row */
+.kbd-sheet-bulk {
+  display: flex;
+  gap: 6px;
+  padding: 2px 4px 4px;
+}
+.kbd-sheet-bulk input {
+  flex: 1;
+  background: #252535;
+  border: 1px solid rgba(255,255,255,.1);
+  border-radius: 8px;
+  color: #f0f0f8;
+  font-size: 14px;
+  padding: 8px 10px;
+  touch-action: auto;
+  outline: none;
+}
+.kbd-sheet-bulk input:focus { border-color: var(--accent); }
+.kbd-sheet-send {
+  background: var(--accent);
+  border: none;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 0 14px;
+  cursor: pointer;
+  flex-shrink: 0;
+  touch-action: manipulation;
+}
+.kbd-sheet-send:active { background: var(--accent-dim); }
+
+/* Key rows inside the sheet */
+.kbs-row {
+  display: flex;
+  gap: 3px;
+  justify-content: center;
+  padding: 0 2px;
+}
+
+/* Individual sheet key */
+.kbs-key {
+  background: #2c2c3e;
+  border: 1px solid rgba(255,255,255,.09);
+  border-bottom: 2px solid rgba(0,0,0,.45);
+  border-radius: 7px;
+  color: #e8e8f2;
+  cursor: pointer;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  font-weight: 500;
+  min-width: 28px;
+  height: 42px;
+  padding: 0 4px;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .07s, transform .05s;
+  -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
+  user-select: none;
+}
+.kbs-key:active {
+  background: var(--accent);
+  border-color: var(--accent);
+  transform: scale(.90) translateY(1px);
+  border-bottom-width: 1px;
+}
+
+/* Modifier keys — darker base */
+.kbs-mod {
+  background: #1e1e2e;
+  color: var(--text-secondary);
+  font-size: 12px;
+  flex: 0 0 auto;
+  min-width: 44px;
+}
+.kbs-mod.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+/* Wide keys: backspace, enter */
+.kbs-wide {
+  flex: 0 0 auto;
+  min-width: 58px;
+  background: #1e1e2e;
+  font-size: 13px;
+}
+
+/* Space bar */
+.kbs-space {
+  flex: 3;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* Arrow keys */
+.kbs-arrow {
+  flex: 0 0 38px;
+  font-size: 18px;
+  background: #1e1e2e;
+  color: #8888cc;
+}
