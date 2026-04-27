@@ -218,10 +218,13 @@ function _updateAppIndicator(online) {
   }
 }
 
-// ── Panel tab switching ───────────────────────────────────────
+// ── Panel tab switching ──────────────────────────────────────────────
 document.querySelectorAll('.tab').forEach(tab => {
   tab.addEventListener('click', () => {
     const panelId = tab.dataset.panel;
+
+    // Track which panel we're leaving
+    const leavingPanel = document.querySelector('.tab.active')?.dataset.panel;
 
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
@@ -230,9 +233,30 @@ document.querySelectorAll('.tab').forEach(tab => {
     const panel = document.getElementById(`panel-${panelId}`);
     if (panel) panel.classList.add('active');
 
-    // Notify xterm to refit on terminal tab switch
+    // ── Switching TO terminal: refit xterm ──────────────────────
     if (panelId === 'terminal' && window.TerminalPanel && TerminalPanel.fit) {
       TerminalPanel.fit();
+    }
+
+    // ── Switching AWAY from terminal: blur xterm to quiesce its
+    //    internal rAF/cursor-blink loop so it doesn't compete with
+    //    the touchpad flush rAF on the next panel. ───────────────
+    if (leavingPanel === 'terminal') {
+      const termContainer = document.getElementById('terminal-container');
+      if (termContainer) {
+        // Blur any focused element inside xterm
+        const focused = termContainer.querySelector(':focus');
+        if (focused) focused.blur();
+      }
+    }
+
+    // ── Switching TO touchpad: hard-reset ALL motion state ──────
+    // Prevents lag caused by:
+    //  1. Stale _filtX/_filtY EMA values from before the tab switch
+    //  2. Ghost pointers left in _ptrs from mid-gesture tab switches
+    //  3. Pending rAF flush that would fire with stale deltas
+    if (panelId === 'touchpad' && window.TouchpadPanel && TouchpadPanel.reset) {
+      TouchpadPanel.reset();
     }
   });
 });

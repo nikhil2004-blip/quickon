@@ -352,4 +352,32 @@
     document.getElementById('sens-val').textContent = CFG.sensitivity + '×';
   });
 
+  // ── Public API — called by app.js on panel switch ─────────────
+  // Hard-resets EVERYTHING so the first touch after a panel switch
+  // has zero stale state. Without this:
+  //   1. _filtX/_filtY hold velocity from before the switch → cursor drifts
+  //   2. _ptrs may have ghost entries if finger was down during the tab tap
+  //   3. A pending rAF fires with stale _accDx/_accDy → phantom move
+  window.TouchpadPanel = {
+    reset() {
+      // Cancel any pending rAF flush — its accumulated values are stale
+      if (_rafId !== null) {
+        cancelAnimationFrame(_rafId);
+        _rafId = null;
+      }
+      // Release all tracked pointers (prevent ghost-finger deltas on next touch)
+      _ptrs.forEach((_, id) => {
+        try { $touchpad.releasePointerCapture(id); } catch (_) {}
+      });
+      _ptrs.clear();
+      // Wipe all smoothing/accumulator state
+      _resetSmoothing();
+      // Clear gesture state
+      _gestureTriggered  = false;
+      _gestureStartPtrs  = [];
+      _lastMoveTime      = 0;
+    },
+  };
+
 })();
+
