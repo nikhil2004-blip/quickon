@@ -106,6 +106,18 @@ python server/server.py
 build.bat
 ```
 
+### SmartScreen warning
+
+If Windows shows "Windows protected your PC", that is SmartScreen flagging an unsigned executable. There is no clean way to remove that screen for downloaded builds unless the `.exe` is code-signed with a trusted certificate and distributed through a trusted channel.
+
+For real distribution, the practical fixes are:
+
+1. Sign `PocketDeck.exe` with an Authenticode certificate before shipping it.
+2. Prefer an EV code-signing certificate if you want SmartScreen reputation to build faster.
+3. Optionally package and sign an MSI or MSIX installer instead of shipping a raw `.exe`.
+
+For your own PC only, you can use the temporary bypass in the dialog, but that does not remove the warning from the file.
+
 ---
 
 ## 🏗️ How it works

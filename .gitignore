@@ -40,3 +40,5 @@ Thumbs.db
 # Project specific
 artifacts/
 .tempmediaStorage/
+.agent/
+PRD_RemoteControl.txt
