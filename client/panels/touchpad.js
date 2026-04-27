@@ -58,12 +58,16 @@
   let _scrollAcc = 0;
 
   // Gesture tracking
-  let _gestureStartPtrs = [];  // snapshot of pointers on the first multi-touch down
+  let _gestureStartPtrs = [];
   let _gestureTriggered = false;
+
+  // Double-tap detection for keyboard trigger
+  let _lastTapTime = 0;
 
   // Timestamp of last pointermove — used to detect inactivity gaps
   let _lastMoveTime = 0;
-  const INACTIVITY_RESET_MS = 40; // reset smoothing after 40ms idle (was 120 — caused stutter on speed change)
+  const INACTIVITY_RESET_MS = 40;
+
 
   /** Nuke all smoothing/accumulator state — clean slate */
   function _resetSmoothing() {
@@ -227,6 +231,11 @@
       startTime: Date.now(),
     });
 
+    // ── Cursor-lag fix: while fingers drag on the TOUCHPAD, suppress
+    //    hit-testing on the keyboard sheet. But ONLY when keyboard is
+    //    hidden — when it's visible it must receive its own events.
+    if (_kbdSheet && !_kbdVisible) _kbdSheet.style.pointerEvents = 'none';
+
     // Reset gesture state when finger count changes
     if (_ptrs.size >= 2) {
       _gestureTriggered = false;
@@ -299,20 +308,33 @@
     const isTap = dt < CFG.tapMaxMs && moveX < CFG.tapMaxMovePx && moveY < CFG.tapMaxMovePx;
 
     if (isTap && !_gestureTriggered) {
-      const fingerCountAtTap = _ptrs.size + 1; // include the finger that just lifted
+      const fingerCountAtTap = _ptrs.size + 1;
       if (fingerCountAtTap === 1) {
-        // Could be a 2-finger tap — wait briefly before sending left click
-        setTimeout(() => {
-          if (_ptrs.size === 0 && !_gestureTriggered) {
-            PocketDeck.send({ type: 'mouse_click', button: 'left' });
-            // Show keyboard bottom sheet — same as native keyboard popup on tap
-            _showKeyboard();
-          }
-        }, 80);
+        // Double-tap detection: if two taps arrive within 300ms → show keyboard
+        // Single tap = left click only (no keyboard popup = no freezing)
+        const now = Date.now();
+        if (now - _lastTapTime < 300) {
+          // Double-tap: left click + open keyboard
+          _lastTapTime = 0;
+          setTimeout(() => {
+            if (_ptrs.size === 0 && !_gestureTriggered) {
+              PocketDeck.send({ type: 'mouse_click', button: 'left' });
+              _showKeyboard();
+            }
+          }, 80);
+        } else {
+          // Single tap: just left click
+          _lastTapTime = now;
+          setTimeout(() => {
+            if (_ptrs.size === 0 && !_gestureTriggered) {
+              PocketDeck.send({ type: 'mouse_click', button: 'left' });
+            }
+          }, 80);
+        }
       } else if (fingerCountAtTap === 2) {
         // Two-finger tap → right click
         PocketDeck.send({ type: 'mouse_click', button: 'right' });
-        _gestureTriggered = true; // prevent the delayed left click
+        _gestureTriggered = true;
       }
     }
 
@@ -320,6 +342,8 @@
     if (_ptrs.size === 0) {
       _resetSmoothing();
       _gestureTriggered = false;
+      // Restore keyboard pointer-events (only matters when keyboard is hidden)
+      if (_kbdSheet) _kbdSheet.style.pointerEvents = '';
     }
   }, { passive: false });
 
@@ -328,6 +352,7 @@
     if (_ptrs.size === 0) {
       _resetSmoothing();
       _gestureTriggered = false;
+      if (_kbdSheet && !_kbdVisible) _kbdSheet.style.pointerEvents = '';
     }
   });
 
@@ -356,8 +381,25 @@
 
   function _sendKey(key) {
     const activeMods = Object.entries(_mods).filter(([,v])=>v).map(([k])=>k);
+    const hasShiftOnly = activeMods.length === 1 && _mods.shift;
+    const hasNoMods    = activeMods.length === 0;
     const combo = activeMods.length ? [...activeMods, key].join('+') : key;
     PocketDeck.send({ type: 'key_tap', key: combo });
+
+    // Update the local text display div so user can see what they've typed
+    const textDisp = _kbdSheet && _kbdSheet.querySelector('#kbd-sheet-text');
+    if (textDisp && (hasNoMods || hasShiftOnly)) {
+      if (key === 'backspace') {
+        textDisp.textContent = textDisp.textContent.slice(0, -1);
+      } else if (key === 'enter') {
+        textDisp.textContent = '';
+      } else if (key === 'space') {
+        textDisp.textContent += '\u00a0'; // non-breaking space so it's visible
+      } else if (key.length === 1) {
+        textDisp.textContent += hasShiftOnly ? key.toUpperCase() : key;
+      }
+    }
+
     // Auto-release sticky mods after one keystroke
     Object.keys(_mods).forEach(k => {
       if (_mods[k]) {
@@ -393,26 +435,27 @@
     sheet.id = 'kbd-sheet';
     sheet.className = 'kbd-sheet';
 
-    // ── Handle bar (swipe down to dismiss) ─────────────────────
+    // ── Handle bar: ▼ dismiss button (left) + pill (center) ───────────
     const handle = document.createElement('div');
     handle.className = 'kbd-sheet-handle-row';
     handle.innerHTML = `
+      <button class="kbd-sheet-dismiss" id="kbd-sheet-close" aria-label="Hide keyboard">▼</button>
       <div class="kbd-sheet-handle"></div>
-      <button class="kbd-sheet-close" id="kbd-sheet-close" aria-label="Hide keyboard">✕</button>
     `;
     sheet.appendChild(handle);
 
-    // ── Bulk-type row ───────────────────────────────────────────
+    // ── Text display + Send row ──────────────────────────────────
+    // Use a <div> NOT an <input> — a div can NEVER open the native
+    // mobile keyboard. The QWERTY keys below write into it.
     const bulkRow = document.createElement('div');
     bulkRow.className = 'kbd-sheet-bulk';
     bulkRow.innerHTML = `
-      <input type="text" id="kbd-sheet-text"
-        placeholder="Type here and press Send…"
-        autocomplete="off" autocorrect="off"
-        autocapitalize="none" spellcheck="false" />
+      <div id="kbd-sheet-text" class="kbd-sheet-text-display"
+        aria-label="Typed text"></div>
       <button class="kbd-sheet-send" id="kbd-sheet-send">Send</button>
     `;
     sheet.appendChild(bulkRow);
+
 
     // ── Modifier row ────────────────────────────────────────────
     const modRow = document.createElement('div');
@@ -486,12 +529,14 @@
     // Bulk send
     bulkRow.querySelector('#kbd-sheet-send').addEventListener('pointerdown', e => {
       e.preventDefault(); e.stopPropagation();
-      const input = bulkRow.querySelector('#kbd-sheet-text');
-      if (input.value) {
-        PocketDeck.send({ type: 'text_type', text: input.value });
-        input.value = '';
+      const disp = bulkRow.querySelector('#kbd-sheet-text');
+      const text = disp.textContent.replace(/\u00a0/g, ' ').trim();
+      if (text) {
+        PocketDeck.send({ type: 'text_type', text });
+        disp.textContent = '';
       }
     });
+
 
     // ── Swipe-down-to-dismiss on handle ─────────────────────────
     let _swipeStartY = null;
@@ -516,21 +561,54 @@
 
     document.getElementById('panel-touchpad').appendChild(sheet);
     _kbdSheet = sheet;
+
+    // ── Persistent ▲ toggle button (always visible when sheet is hidden) ───
+    // Lives outside the sheet so it's not covered by it.
+    const $toggle = document.createElement('button');
+    $toggle.id        = 'kbd-toggle-btn';
+    $toggle.className = 'kbd-toggle-btn';
+    $toggle.innerHTML = '▲';
+    $toggle.setAttribute('aria-label', 'Show keyboard');
+    $toggle.addEventListener('pointerdown', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      _showKeyboard();
+    });
+    document.getElementById('panel-touchpad').appendChild($toggle);
   }
 
   function _showKeyboard() {
     _buildSheet();   // no-op if already built
     if (_kbdVisible) return;
     _kbdVisible = true;
-    // Force reflow before adding class so CSS transition fires
-    _kbdSheet.getBoundingClientRect();
+
+    // ── Critical: release all pointer captures from the touchpad ──
+    // The tap that opened the keyboard called setPointerCapture(), which
+    // means that pointer ID is still "owned" by $touchpad. If not released,
+    // fingers touching the keyboard will still fire events on the touchpad.
+    for (const [id] of _ptrs) {
+      try { $touchpad.releasePointerCapture(id); } catch (_) {}
+    }
+    _ptrs.clear();
+    _resetSmoothing();
+    // Also ensure keyboard sheet is fully interactive
+    if (_kbdSheet) _kbdSheet.style.pointerEvents = '';
+
+    _kbdSheet.getBoundingClientRect();  // force reflow so transition fires
     _kbdSheet.classList.add('visible');
+    // Hide the ▲ toggle button
+    const $t = document.getElementById('kbd-toggle-btn');
+
+    if ($t) $t.style.display = 'none';
   }
 
   function _hideKeyboard() {
     if (!_kbdSheet || !_kbdVisible) return;
     _kbdVisible = false;
     _kbdSheet.classList.remove('visible');
+    // Show the ▲ toggle button again
+    const $t = document.getElementById('kbd-toggle-btn');
+    if ($t) $t.style.display = '';
   }
 
   // ── Sensitivity slider (injected into panel) ──────────────────

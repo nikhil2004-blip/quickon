@@ -767,6 +767,10 @@ input[type="text"]:focus {
   /* Slide UP animation — same easing as iOS keyboard */
   transform: translateY(100%);
   transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+  will-change: transform;      /* pre-paint on GPU so slide-up is silky */
+
+  /* Contain key-press repaints inside the sheet — never affects touchpad area */
+  contain: layout style;
 
   /* Prevent pointer events reaching the touchpad while sheet is open */
   touch-action: none;
@@ -775,35 +779,34 @@ input[type="text"]:focus {
   transform: translateY(0);
 }
 
-/* Handle row (pill + close button) */
+/* Handle row (pill + dismiss button) */
 .kbd-sheet-handle-row {
   display: flex;
   align-items: center;
-  justify-content: center;
   padding: 8px 12px 4px;
+  gap: 10px;
   position: relative;
 }
 .kbd-sheet-handle {
-  width: 36px; height: 4px;
+  flex: 1;
+  height: 4px;
   border-radius: 99px;
   background: rgba(255,255,255,.2);
-  flex-shrink: 0;
 }
-.kbd-sheet-close {
-  position: absolute;
-  right: 8px;
-  top: 50%; transform: translateY(-50%);
+/* ▼ dismiss button — top-left of the keyboard */
+.kbd-sheet-dismiss {
   background: rgba(255,255,255,.08);
   border: none;
-  border-radius: 50%;
-  color: var(--text-secondary);
-  width: 28px; height: 28px;
-  font-size: 14px;
-  cursor: pointer;
+  border-radius: 8px;
+  color: #a0a0cc;
+  font-size: 16px;
+  width: 36px; height: 32px;
+  flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
   touch-action: manipulation;
 }
-.kbd-sheet-close:active { background: rgba(255,255,255,.18); color: #fff; }
+.kbd-sheet-dismiss:active { background: rgba(255,255,255,.2); color: #fff; }
 
 /* Bulk-type row */
 .kbd-sheet-bulk {
@@ -811,7 +814,8 @@ input[type="text"]:focus {
   gap: 6px;
   padding: 2px 4px 4px;
 }
-.kbd-sheet-bulk input {
+/* Text display — a <div>, not <input>, so native keyboard NEVER opens */
+.kbd-sheet-text-display {
   flex: 1;
   background: #252535;
   border: 1px solid rgba(255,255,255,.1);
@@ -819,10 +823,20 @@ input[type="text"]:focus {
   color: #f0f0f8;
   font-size: 14px;
   padding: 8px 10px;
-  touch-action: auto;
-  outline: none;
+  min-height: 36px;
+  overflow: hidden;
+  white-space: nowrap;
+  display: flex;
+  align-items: center;
+  user-select: none;
+  letter-spacing: .02em;
 }
-.kbd-sheet-bulk input:focus { border-color: var(--accent); }
+.kbd-sheet-text-display:empty::before {
+  content: 'Keys appear here…';
+  color: rgba(255,255,255,.3);
+  font-style: italic;
+}
+
 .kbd-sheet-send {
   background: var(--accent);
   border: none;
@@ -840,38 +854,39 @@ input[type="text"]:focus {
 /* Key rows inside the sheet */
 .kbs-row {
   display: flex;
-  gap: 3px;
+  gap: 4px;
   justify-content: center;
   padding: 0 2px;
 }
 
-/* Individual sheet key */
+/* Individual sheet key — bigger for comfortable thumb typing */
 .kbs-key {
   background: #2c2c3e;
   border: 1px solid rgba(255,255,255,.09);
   border-bottom: 2px solid rgba(0,0,0,.45);
-  border-radius: 7px;
+  border-radius: 8px;
   color: #e8e8f2;
   cursor: pointer;
   font-family: var(--font-sans);
-  font-size: 14px;
+  font-size: 16px;
   font-weight: 500;
-  min-width: 28px;
-  height: 42px;
+  min-width: 30px;
+  height: 52px;                  /* was 42 — bigger for thumb reach */
   padding: 0 4px;
   flex: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: background .07s, transform .05s;
+  transition: background .06s, transform .04s;
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
   user-select: none;
+  will-change: transform;        /* pre-allocate GPU layer — no repaint jank */
 }
 .kbs-key:active {
   background: var(--accent);
   border-color: var(--accent);
-  transform: scale(.90) translateY(1px);
+  transform: scale(.88) translateY(1px);
   border-bottom-width: 1px;
 }
 
@@ -879,9 +894,10 @@ input[type="text"]:focus {
 .kbs-mod {
   background: #1e1e2e;
   color: var(--text-secondary);
-  font-size: 12px;
+  font-size: 13px;
   flex: 0 0 auto;
-  min-width: 44px;
+  min-width: 48px;
+  height: 48px;    /* slightly shorter than letter keys */
 }
 .kbs-mod.active {
   background: var(--accent);
@@ -893,22 +909,48 @@ input[type="text"]:focus {
 /* Wide keys: backspace, enter */
 .kbs-wide {
   flex: 0 0 auto;
-  min-width: 58px;
+  min-width: 64px;
   background: #1e1e2e;
-  font-size: 13px;
+  font-size: 15px;
 }
 
 /* Space bar */
 .kbs-space {
   flex: 3;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--text-muted);
+  height: 50px;
 }
 
 /* Arrow keys */
 .kbs-arrow {
-  flex: 0 0 38px;
-  font-size: 18px;
+  flex: 0 0 44px;
+  font-size: 20px;
   background: #1e1e2e;
   color: #8888cc;
+  height: 50px;
+}
+
+/* ▲ Persistent keyboard toggle button — floats above the sensitivity slider */
+.kbd-toggle-btn {
+  position: absolute;
+  bottom: 52px;       /* just above the slider row */
+  right: 14px;
+  z-index: 40;        /* below the sheet (z:50) so it hides under it naturally */
+  background: rgba(30, 30, 50, 0.85);
+  border: 1px solid rgba(255,255,255,.15);
+  border-radius: 10px;
+  color: #a0a0cc;
+  font-size: 16px;
+  padding: 6px 12px;
+  cursor: pointer;
+  touch-action: manipulation;
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  transition: opacity .15s, transform .1s;
+}
+.kbd-toggle-btn:active {
+  transform: scale(.93);
+  background: rgba(99,102,241,.35);
+  color: #fff;
 }
