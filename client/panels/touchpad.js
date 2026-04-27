@@ -254,6 +254,24 @@
 
     if (!info) return;
 
+    // ── DRAG LOCK RELEASE — must happen FIRST, before ANY tap processing ──
+    // Fires synchronously the moment the last finger leaves the screen.
+    // This is the critical path for screenshot selection: lift finger → left
+    // button releases on PC → Snipping Tool captures immediately.
+    const wasDragLocked = _dragLocked;
+    if (_ptrs.size === 0 && _dragLocked) {
+      _setDragLock(false);
+    }
+
+    // Skip all tap/click logic if we were ending a drag-lock session
+    if (wasDragLocked) {
+      if (_ptrs.size === 0) {
+        _resetSmoothing();
+        _gestureTriggered = false;
+      }
+      return;
+    }
+
     const dt = Date.now() - info.startTime;
     const moveX = Math.abs(e.clientX - info.startX);
     const moveY = Math.abs(e.clientY - info.startY);
@@ -263,10 +281,8 @@
       const fingerCountAtTap = _ptrs.size + 1;
       if (fingerCountAtTap === 1) {
         // Double-tap detection: if two taps arrive within 300ms → show keyboard
-        // Single tap = left click only (no keyboard popup = no freezing)
         const now = Date.now();
         if (now - _lastTapTime < 300) {
-          // Double-tap: left click + open keyboard
           _lastTapTime = 0;
           setTimeout(() => {
             if (_ptrs.size === 0 && !_gestureTriggered) {
@@ -275,7 +291,7 @@
             }
           }, 80);
         } else {
-          // Single tap: just left click
+          // Single tap: left click
           _lastTapTime = now;
           setTimeout(() => {
             if (_ptrs.size === 0 && !_gestureTriggered) {
@@ -284,7 +300,6 @@
           }, 80);
         }
       } else if (fingerCountAtTap === 2) {
-        // Two-finger tap → right click
         PocketDeck.send({ type: 'mouse_click', button: 'right' });
         _gestureTriggered = true;
       }
@@ -296,6 +311,7 @@
       _gestureTriggered = false;
     }
   }, { passive: false });
+
 
   $touchpad.addEventListener('pointercancel', e => {
     _ptrs.delete(e.pointerId);
@@ -648,9 +664,11 @@
       $btn.textContent = active ? '🔒Drag' : '🖱 Drag';
     }
     if (active) {
-      // Auto-release after 10 s
+      // Clear panel-switch inhibit instantly so user can drag right away
+      _inhibitUntil = 0;
+      // Auto-release after 15 s safety fallback
       clearTimeout(_dragLockTimer);
-      _dragLockTimer = setTimeout(() => _setDragLock(false), 10_000);
+      _dragLockTimer = setTimeout(() => _setDragLock(false), 15_000);
     } else {
       clearTimeout(_dragLockTimer);
     }

@@ -68,30 +68,6 @@ widgets:
       - type: keypress
         key: "win+shift+s"
 
-  - id: volume-up
-    label: "Vol +"
-    icon: "🔊"
-    color: "#22d3ee"
-    actions:
-      - type: keypress
-        key: "volume_up"
-
-  - id: volume-down
-    label: "Vol -"
-    icon: "🔉"
-    color: "#22d3ee"
-    actions:
-      - type: keypress
-        key: "volume_down"
-
-  - id: mute
-    label: "Mute"
-    icon: "🔇"
-    color: "#64748b"
-    actions:
-      - type: keypress
-        key: "volume_mute"
-
   # ── Browser ───────────────────────────────────────────────────────────────
   - id: open-chatgpt
     label: "ChatGPT"

@@ -95,25 +95,9 @@
     if (btn) btn.classList.toggle('active', _termMods[mod]);
   }
 
-  function _showTermKbd() {
-    if (!_termSheet) _buildKeyboardOverlay();
-    if (_termKbdVisible) return;
-    _termKbdVisible = true;
-    _termSheet.getBoundingClientRect();   // force reflow → transition fires
-    _termSheet.classList.add('visible');
-    const $t = document.getElementById('term-kbd-toggle-btn');
-    if ($t) $t.style.display = 'none';
-    setTimeout(() => TerminalPanel.fit(), 300);
-  }
-
-  function _hideTermKbd() {
-    if (!_termKbdVisible) return;
-    _termKbdVisible = false;
-    _termSheet.classList.remove('visible');
-    const $t = document.getElementById('term-kbd-toggle-btn');
-    if ($t) $t.style.display = '';
-    setTimeout(() => TerminalPanel.fit(), 300);
-  }
+  // We leave these as stubs in case other code tries to call them
+  function _showTermKbd() {}
+  function _hideTermKbd() {}
 
   function _buildKeyboardOverlay() {
     const panel = document.getElementById('panel-terminal');
@@ -122,7 +106,7 @@
     // Sheet container — reuses all .kbd-sheet CSS from style.css
     const sheet = document.createElement('div');
     sheet.id        = 'term-kbd-sheet';
-    sheet.className = 'kbd-sheet';     // identical class → identical styling
+    sheet.className = 'kbd-sheet visible';     // always visible
     sheet.addEventListener('pointerdown', e => e.stopPropagation());
     panel.appendChild(sheet);
     _termSheet = sheet;
@@ -133,24 +117,12 @@
       window.TouchpadPanel.buildKeyboardDOM(
         sheet,
         /* onKey */    (key, mods) => _termSendKey(key, mods),
-        /* onDismiss */_hideTermKbd,
+        /* onDismiss */() => {}, // Never dismiss in terminal
         /* onSend */   null,
         _termMods,
         /* toggleMod */(mod, btn)  => _termToggleMod(mod, btn),
       );
     }
-
-    // ▲ toggle button (sits below the sheet when it's hidden)
-    const $toggle = document.createElement('button');
-    $toggle.id        = 'term-kbd-toggle-btn';
-    $toggle.className = 'kbd-toggle-btn';
-    $toggle.innerHTML = '▲';
-    $toggle.setAttribute('aria-label', 'Show keyboard');
-    $toggle.addEventListener('pointerdown', e => {
-      e.preventDefault(); e.stopPropagation();
-      _showTermKbd();
-    });
-    panel.appendChild($toggle);
   }
 
   // ── xterm.js init ──────────────────────────────────────────────────────

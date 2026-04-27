@@ -760,9 +760,8 @@ input[type="text"]:focus {
   border-radius: 16px 16px 0 0;
 
   /* Safe-area padding: env() returns the gesture nav-bar height once
-     viewport-fit=cover is active in the meta tag. Fallback 28px handles
-     browsers that don't support it (covers most Android nav bars). */
-  padding: 4px 0 calc(28px + env(safe-area-inset-bottom, 28px));
+     viewport-fit=cover is active in the meta tag. */
+  padding: 4px 0 calc(8px + env(safe-area-inset-bottom, 8px));
   display: flex;
   flex-direction: column;
   gap: 3px;
@@ -975,10 +974,23 @@ input[type="text"]:focus {
 }
 
 /* Terminal key rows — slightly smaller than touchpad for more rows */
-.term-kbd-sheet .tkey,
-.term-kbd-sheet .kbs-key {
+#term-kbd-sheet .tkey,
+#term-kbd-sheet .kbs-key {
   height: 44px;
   font-size: 13px;
+}
+
+/* Make terminal keyboard statically positioned so it doesn't overlap terminal output */
+#term-kbd-sheet {
+  position: static;
+  transform: none !important;
+  border-radius: 0;
+  border-top: 1px solid rgba(255,255,255,.1);
+}
+
+/* Hide the handle row entirely in the terminal to save vertical space and prevent dismissing */
+#term-kbd-sheet .kbd-sheet-handle-row {
+  display: none;
 }
 
 /* F-key row: scrollable horizontally */
