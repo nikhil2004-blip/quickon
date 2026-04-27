@@ -99,7 +99,7 @@ html, body {
 .logo {
   text-align: center;
 }
-.logo-icon { font-size: 48px; display: block; margin-bottom: 8px; }
+.logo-icon { width: 64px; height: 64px; display: block; margin: 0 auto 8px; object-fit: contain; }
 .logo h1 { font-size: 28px; font-weight: 700; letter-spacing: -.5px; }
 .tagline { color: var(--text-secondary); font-size: 14px; margin-top: 4px; }
 

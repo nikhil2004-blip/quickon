@@ -261,7 +261,7 @@ document.querySelectorAll('.tab').forEach(tab => {
     // absorbing the panel-switch event burst on some Android devices.
     if (panelId === 'touchpad' && window.TouchpadPanel) {
       if (TouchpadPanel.reset) TouchpadPanel.reset();
-      if (TouchpadPanel.inhibit) TouchpadPanel.inhibit(70);
+      if (TouchpadPanel.inhibit) TouchpadPanel.inhibit(50);
     }
   });
 });

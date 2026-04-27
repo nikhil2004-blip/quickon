@@ -11,16 +11,31 @@ Architecture:
 """
 
 import asyncio
+import base64
 import json
 import logging
 import os
 import socket
 import sys
+import threading
+import webbrowser
+from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import websockets
 from websockets.server import serve, WebSocketServerProtocol
+
+
+def _ensure_stdio_for_windowless_mode() -> None:
+    """Provide valid stdio streams when running without a console window."""
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w", encoding="utf-8")
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w", encoding="utf-8")
+
+
+_ensure_stdio_for_windowless_mode()
 
 
 def _detach_console_after_connect() -> None:
@@ -92,6 +107,22 @@ logger = logging.getLogger("pocketdeck")
 # ── global state ──────────────────────────────────────────────
 TOKEN: str = ""
 active_terminals = {}
+_startup_ready = threading.Event()
+_startup_info = {"ips": ["127.0.0.1"], "token": ""}
+
+
+def _ensure_terminal_session(ws: WebSocketServerProtocol):
+    """Create a terminal session only when the client actually uses terminal panel."""
+    term = active_terminals.get(ws)
+    if term is not None:
+        return term
+
+    from handlers.terminal import TerminalSession
+
+    term = TerminalSession(ws)
+    active_terminals[ws] = term
+    term.start()
+    return term
 
 # Thread pool for blocking syscalls (SendInput, pynput) so they don't stall the event loop.
 #
@@ -165,12 +196,6 @@ async def handle_connection(ws: WebSocketServerProtocol) -> None:
     # Send widget_list (loaded from widgets.yaml)
     await ws.send(json.dumps({"type": "widget_list", "widgets": get_widget_list_payload()}))
 
-    # ── Phase 3: Start Terminal ────────────────────────────────
-    from handlers.terminal import TerminalSession
-    term = TerminalSession(ws)
-    active_terminals[ws] = term
-    term.start()
-
     # ── Phase 2: Control loop ──────────────────────────────────
     try:
         async for raw_msg in ws:
@@ -235,12 +260,10 @@ async def _dispatch(ws: WebSocketServerProtocol, raw: str) -> None:
 
     # ── Terminal (Phase 3) ─────────────────────────────────────
     elif t == "terminal_in":
-        if ws in active_terminals:
-            active_terminals[ws].write(msg.get("data", ""))
+        _ensure_terminal_session(ws).write(msg.get("data", ""))
 
     elif t == "terminal_resize":
-        if ws in active_terminals:
-            active_terminals[ws].resize(msg.get("cols", 80), msg.get("rows", 24))
+        _ensure_terminal_session(ws).resize(msg.get("cols", 80), msg.get("rows", 24))
 
     # ── Widgets (Phase 5) ──────────────────────────────────────
     elif t == "widget_run":
@@ -268,14 +291,30 @@ async def _serve_http() -> None:
     import threading
     import functools
 
-    handler = functools.partial(
-        http.server.SimpleHTTPRequestHandler,
-        directory=str(CLIENT_DIR),
-    )
-    # Silence the request log spam from SimpleHTTPRequestHandler
-    handler.log_message = lambda *args: None  # type: ignore[attr-defined]
+    class _PocketDeckHandler(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=str(CLIENT_DIR), **kwargs)
 
-    server = http.server.HTTPServer(("0.0.0.0", HTTP_PORT), handler)
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            if self.path == "/app.ico":
+                icon_path = Path(sys._MEIPASS) / "app.ico" if getattr(sys, "frozen", False) else Path(__file__).resolve().parent.parent / "app.ico"
+                if icon_path.exists():
+                    try:
+                        data = icon_path.read_bytes()
+                        self.send_response(200)
+                        self.send_header("Content-Type", "image/x-icon")
+                        self.send_header("Content-Length", str(len(data)))
+                        self.end_headers()
+                        self.wfile.write(data)
+                        return
+                    except Exception:
+                        pass
+            return super().do_GET()
+
+    server = http.server.HTTPServer(("0.0.0.0", HTTP_PORT), _PocketDeckHandler)
 
     logger.info(f"HTTP server → http://0.0.0.0:{HTTP_PORT}  (serving {CLIENT_DIR})")
 
@@ -300,6 +339,10 @@ async def main() -> None:
         logger.warning("No non-loopback IPs found — using 127.0.0.1")
         ips = ["127.0.0.1"]
 
+    _startup_info["ips"] = ips
+    _startup_info["token"] = TOKEN
+    _startup_ready.set()
+
     # Start HTTP server in background thread
     await _serve_http()
 
@@ -321,8 +364,113 @@ async def main() -> None:
         await asyncio.Future()   # run forever
 
 
-if __name__ == "__main__":
+def _make_tray_icon_image():
+    """Load app.ico for the tray icon, falling back to a generated image if needed."""
+    from PIL import Image, ImageDraw
+
+    icon_path = Path(sys._MEIPASS) / "app.ico" if getattr(sys, "frozen", False) else Path(__file__).resolve().parent.parent / "app.ico"
     try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        logger.info("Shutting down — goodbye!")
+        if icon_path.exists():
+            return Image.open(icon_path)
+    except Exception:
+        pass
+
+    img = Image.new("RGBA", (64, 64), (22, 26, 33, 255))
+    draw = ImageDraw.Draw(img)
+    draw.rounded_rectangle((8, 8, 56, 56), radius=12, fill=(41, 128, 255, 255))
+    draw.rectangle((20, 18, 44, 26), fill=(255, 255, 255, 255))
+    draw.rectangle((20, 30, 44, 46), fill=(255, 255, 255, 255))
+    return img
+
+
+def _run_windows_tray() -> None:
+    """Keep PocketDeck in system tray for frozen Windows releases."""
+    try:
+        import pystray
+    except Exception as e:
+        logger.error(f"pystray unavailable: {e}")
+        threading.Event().wait()
+        return
+
+    _startup_ready.wait(timeout=5)
+
+    def _current_url() -> str:
+        ip = _startup_info["ips"][0] if _startup_info["ips"] else "127.0.0.1"
+        return f"http://{ip}:{HTTP_PORT}"
+
+    def on_show_qr(_icon, _item):
+        try:
+            import qrcode
+
+            url = _current_url()
+            token = _startup_info.get("token", "")
+
+            qr = qrcode.QRCode(version=1, box_size=8, border=2)
+            qr.add_data(url)
+            qr.make(fit=True)
+            img = qr.make_image(fill_color="black", back_color="white")
+
+            buf = BytesIO()
+            img.save(buf, format="PNG")
+            b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+
+            html = f"""<!doctype html>
+<html>
+<head>
+    <meta charset=\"utf-8\" />
+    <title>PocketDeck QR</title>
+    <style>
+        body {{ background: #07090d; color: #f2f4f8; font-family: Segoe UI, sans-serif; margin: 0; padding: 24px; }}
+        .wrap {{ max-width: 560px; margin: 0 auto; text-align: center; }}
+        img {{ width: min(82vw, 420px); background: #fff; padding: 14px; border-radius: 12px; }}
+        .meta {{ margin-top: 14px; font-size: 18px; line-height: 1.5; }}
+        .token {{ font-weight: 700; letter-spacing: 0.5px; }}
+    </style>
+</head>
+<body>
+    <div class=\"wrap\">
+        <img src=\"data:image/png;base64,{b64}\" alt=\"PocketDeck QR\" />
+        <div class=\"meta\">URL: {url}</div>
+        <div class=\"meta\">Token: <span class=\"token\">{token}</span></div>
+    </div>
+</body>
+</html>"""
+
+            qr_page = Path(os.getenv("TEMP", ".")) / "PocketDeck_QR.html"
+            qr_page.write_text(html, encoding="utf-8")
+            webbrowser.open(qr_page.resolve().as_uri())
+        except Exception as e:
+            logger.error(f"Failed to show QR page: {e}")
+
+    def on_info(icon, _item):
+        url = _current_url()
+        token = _startup_info.get("token", "")
+        try:
+            icon.notify(f"URL: {url}\nToken: {token}", "PocketDeck")
+        except Exception:
+            pass
+
+    def on_exit(icon, _item):
+        icon.stop()
+        os._exit(0)
+
+    menu = pystray.Menu(
+        pystray.MenuItem("Show QR Code", on_show_qr),
+        pystray.MenuItem("Show Connection Info", on_info),
+        pystray.MenuItem("Exit PocketDeck", on_exit),
+    )
+
+    icon = pystray.Icon("PocketDeck", _make_tray_icon_image(), "PocketDeck", menu)
+    icon.run()
+
+
+if __name__ == "__main__":
+    if os.name == "nt" and getattr(sys, "frozen", False):
+        server_thread = threading.Thread(target=lambda: asyncio.run(main()), daemon=True)
+        server_thread.start()
+        _run_windows_tray()
+    else:
+        try:
+            asyncio.run(main())
+        except KeyboardInterrupt:
+            logger.info("Shutting down — goodbye!")
