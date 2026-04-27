@@ -2,35 +2,35 @@
   <img src="assets/logo.png" alt="PocketDeck Logo" width="160" style="border-radius: 32px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); margin-bottom: 20px;" />
 
   <h1>📱 PocketDeck</h1>
-  <p><b>A blazing-fast, background-first mobile companion for your PC.</b></p>
+  <p><b>Because getting out of your chair to pause a video is just too much work.</b></p>
 
-  [![Download PocketDeck.exe](https://img.shields.io/badge/Download-PocketDeck.exe-2ea44f?style=for-the-badge&logo=windows)](https://raw.githubusercontent.com/nikhil2004-blip/quickon/master/dist/PocketDeck.exe)
-  [![GitHub Release](https://img.shields.io/github/v/release/nikhil2004-blip/quickon?color=blue&style=for-the-badge)](https://github.com/nikhil2004-blip/quickon/releases)
+  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
+  [![Made with Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 </div>
 
 <br />
 
-PocketDeck transforms your smartphone into a premium control surface for your computer over your local network. No cloud accounts, no internet relays, and absolutely no mobile app installation required. It just works.
+PocketDeck turns your phone into a remote control for your PC. It works entirely over your local network, meaning no sketchy cloud accounts, no random internet relays, and no need to download yet another bloated app from the App Store. Just scan a QR code and you're in.
 
 ---
 
-## ✨ Features That Matter
+## ✨ Why should you care?
 
-- 🚀 **Zero-Latency Touchpad:** Hardware-accelerated finger tracking with jitter suppression and a beautiful dark UI.
-- ⌨️ **Native Laptop Emulation:** Full QWERTY keyboard with `Ctrl`, `Alt`, `Shift`, `Win`, and `Tab` modifiers for shortcuts like `Alt+Tab` or `Ctrl+C`.
-- 💻 **The "Killer" Terminal:** A real, persistent PTY session (PowerShell/CMD) streamed to your phone with full ANSI colors, interactive command support (`vim`, `htop`), and tab autocomplete.
-- ⚡ **Custom Automations:** Launch apps, trigger scripts, or run complex macro sequences via a simple `widgets.yaml` configuration.
-- 🎵 **Media Center:** Control playback, volume, and tracks right from the palm of your hand.
-- 🛡️ **Secure & Private:** Token-based authentication restricted entirely to your local network.
+- 🚀 **Touchpad that actually works:** No weird lag. Just a smooth, dark UI so your eyes don't bleed at 2 AM.
+- ⌨️ **A real keyboard:** Yes, it has `Ctrl`, `Alt`, `Shift`, `Win`, and `Tab`. So you can finally `Alt+Tab` from your bed.
+- 💻 **Terminal in your pocket:** A proper PTY session (PowerShell/CMD) streamed right to your phone. It supports colors, `vim` (if you know how to exit it), and autocomplete.
+- ⚡ **Automations:** Too lazy to type? Launch apps and run scripts using a simple `widgets.yaml` file.
+- 🎵 **Media Control:** Because playing/pausing Spotify shouldn't require touching your mouse.
+- 🛡️ **Privacy:** Everything stays on your local network. I don't want your data anyway.
 
 ---
 
 ## 📥 Quick Start
 
-PocketDeck is designed to be invisible when you don't need it, and instant when you do. 
+PocketDeck hides in the background until you need it. Because nobody wants another random window cluttering their screen.
 
 ### 1. Download & Run
-Download the latest executable directly to your machine (no redirects, starts immediately):
+Just download the `.exe` file directly (no annoying redirects):
 
 <div align="center">
   <br />
@@ -40,31 +40,31 @@ Download the latest executable directly to your machine (no redirects, starts im
   <br /><br />
 </div>
 
-Double-click the downloaded file. **PocketDeck runs completely in the background**—you won't see a visible window popping up.
+Double-click it. Nothing will happen on screen. Don't panic, it's running in the background.
 
 ### 2. Connect Your Phone
-To connect your phone, you need to open the QR code from the **Hidden Icon Tray** in your Windows taskbar.
+Since there's no visible window, you have to use the Windows hidden icon tray to actually connect.
 
-1. Click the **up arrow** `^` in your Windows taskbar to show hidden icons.
-2. Find the **PocketDeck icon** (the blue icon).
-3. Right-click the icon and select **"Show QR Code"**.
+1. Click the **up arrow** `^` in your Windows taskbar (you know, where all the background stuff lives).
+2. Look for the blue **PocketDeck icon**.
+3. Right-click it and hit **"Show QR Code"**.
 
 <p align="center">
   <img src="assets/tray_menu.png" alt="System Tray Menu" width="300" style="border-radius: 8px; border: 1px solid #444; margin-top: 10px;" />
   <br />
-  <em>Right-click the PocketDeck icon in the hidden tray to reveal the menu.</em>
+  <em>Right-click the icon to reveal the menu. Yes, it's that easy.</em>
 </p>
 
-4. Scan the QR code with your phone's camera.
-5. The PocketDeck Web App will open in your mobile browser. **You are now connected!**
+4. Scan the QR code with your phone.
+5. It'll open in your browser. Boom, connected.
 
-*(Pro Tip: Use "Add to Home Screen" on your mobile browser for a full-screen, native-app experience!)*
+*(Pro Tip: Tap "Add to Home Screen" on your phone to hide the browser UI and make it look like a real app.)*
 
 ---
 
-## ⚙️ Customizing Your Deck
+## ⚙️ Customizing
 
-You can easily add your own buttons to the PocketDeck by modifying the `server/widgets.yaml` file. 
+Want to add your own buttons? Just edit `server/widgets.yaml`. It's pretty straightforward.
 
 ```yaml
 widgets:
@@ -79,44 +79,44 @@ widgets:
         args: ["."]
 ```
 
-Actions support running terminal commands, launching applications, sending keystrokes, and adding delays.
+You can run terminal commands, launch apps, or mash keyboard shortcuts with it. 
 
 ---
 
-## 🛠️ For Developers (Build from Source)
+## 🛠️ Build it yourself
 
-Want to tweak the code or build the executable yourself?
+Don't trust my `.exe` file? Fair enough. Build it yourself:
 
 ```bash
-# 1. Clone the repository
+# 1. Clone this thing
 git clone https://github.com/nikhil2004-blip/quickon.git
 cd quickon
 
-# 2. Setup the virtual environment
+# 2. Setup your virtual environment
 python -m venv .venv
 .\.venv\Scripts\activate
 
-# 3. Install dependencies
+# 3. Install the stuff it needs
 pip install -r server/requirements.txt
 
-# 4. Run the development server
+# 4. Run it locally
 python server/server.py
 
-# 5. Build the executable (creates dist/PocketDeck.exe)
+# 5. Build the executable (dumps it in dist/PocketDeck.exe)
 build.bat
 ```
 
 ---
 
-## 🏗️ Technical Architecture
+## 🏗️ How it works
 
-PocketDeck achieves its extreme performance through a carefully designed stack:
-- **Backend:** Pure Python using `asyncio`, `websockets`, and `pynput`. A split-thread pool architecture perfectly serializes Windows API calls to eliminate cursor jitter.
-- **Frontend:** Zero-framework Vanilla HTML/CSS/JS. Powered by `xterm.js` for the terminal and `requestAnimationFrame` for buttery-smooth 60fps gesture tracking.
-- **Packaging:** Bundled via PyInstaller into a standalone, zero-dependency executable.
+In case you care about the tech:
+- **Backend:** Python. Uses `asyncio`, `websockets`, and `pynput`. It uses a thread pool to avoid cursor jitter, so your mouse doesn't jump around like crazy.
+- **Frontend:** Good old Vanilla HTML/CSS/JS. No React bloat. Uses `xterm.js` for the terminal and tracks your fingers at a smooth 60fps.
+- **Packaging:** Dumped into an `.exe` using PyInstaller.
 
 ---
 
 <div align="center">
-  Built with ❤️ for power users and developers.
+  Made so I can control my PC without leaving the couch.
 </div>
