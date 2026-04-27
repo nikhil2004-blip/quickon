@@ -22,23 +22,23 @@
 (function TouchpadModule() {
 
   // ── DOM ──────────────────────────────────────────────────────
-  const $touchpad      = document.getElementById('touchpad');
+  const $touchpad = document.getElementById('touchpad');
 
   // ── Config ────────────────────────────────────────────────────
   const CFG = {
-    sensitivity:     3.0,   // px multiplier — tuned for full HD coverage
-    deadZonePx:      0.5,   // raw delta below this = ignore (kills micro-jitter)
-    tapMaxMovePx:    12,    // max movement to count as a tap
-    tapMaxMs:        300,   // max duration for a tap
-    scrollRatio:     2.0,   // scroll sensitivity
-    gestureMinPx:    30,    // minimum swipe distance to trigger a gesture
-    gestureMaxMs:    500,   // maximum time for a swipe gesture
+    sensitivity: 3.0,   // px multiplier — tuned for full HD coverage
+    deadZonePx: 0.5,   // raw delta below this = ignore (kills micro-jitter)
+    tapMaxMovePx: 12,    // max movement to count as a tap
+    tapMaxMs: 300,   // max duration for a tap
+    scrollRatio: 2.0,   // scroll sensitivity
+    gestureMinPx: 30,    // minimum swipe distance to trigger a gesture
+    gestureMaxMs: 500,   // maximum time for a swipe gesture
     // Velocity-adaptive filter (One Euro Filter principle):
     //   Small/slow movement  → low alpha (more smoothing, kills jitter)
     //   Large/fast movement  → high alpha (near raw, kills lag)
-    alphaMin:        0.4,   // alpha for near-zero movement (max smoothing)
-    alphaMax:        1.0,   // alpha for fast movement (no smoothing = no lag)
-    speedThreshold:  12,    // px/event below which smoothing kicks in fully
+    alphaMin: 0.4,   // alpha for near-zero movement (max smoothing)
+    alphaMax: 1.0,   // alpha for fast movement (no smoothing = no lag)
+    speedThreshold: 12,    // px/event below which smoothing kicks in fully
   };
 
   // ── State ─────────────────────────────────────────────────────
@@ -157,17 +157,17 @@
 
     const gestures = {
       // 3-finger up intentionally omitted — phone OS intercepts it (screenshot)
-      '3-down':  { type: 'key_tap', key: 'win+d' },           // Show desktop / minimize all
-      '3-left':  { type: 'key_tap', key: 'alt+shift+tab' },   // Switch app backward
+      '3-down': { type: 'key_tap', key: 'win+d' },           // Show desktop / minimize all
+      '3-left': { type: 'key_tap', key: 'alt+shift+tab' },   // Switch app backward
       '3-right': { type: 'key_tap', key: 'alt+tab' },         // Switch app forward
       // 4-finger: swipe direction = pan direction (like a real trackpad)
       // 4-finger: swipe direction = pan direction (like a real trackpad)
       // Swipe from right to left (LEFT swipe) pulls the RIGHT virtual desktop into view
       // Swipe from left to right (RIGHT swipe) pulls the LEFT virtual desktop into view
-      '4-left':  { type: 'key_tap', key: 'win+ctrl+right' },  // Virtual desktop right
+      '4-left': { type: 'key_tap', key: 'win+ctrl+right' },  // Virtual desktop right
       '4-right': { type: 'key_tap', key: 'win+ctrl+left' },   // Virtual desktop left
-      '4-up':    { type: 'key_tap', key: 'win+tab' },         // Task View
-      '4-down':  { type: 'key_tap', key: 'win+d' },           // Show desktop
+      '4-up': { type: 'key_tap', key: 'win+tab' },         // Task View
+      '4-down': { type: 'key_tap', key: 'win+d' },           // Show desktop
     };
 
     const key = `${fingerCount}-${direction}`;
@@ -268,7 +268,7 @@
       _scrollAcc += rawDy;
       if (Math.abs(_scrollAcc) >= 5) {
         const clicks = Math.round(_scrollAcc / (5 / CFG.scrollRatio));
-        PocketDeck.send({ type: 'mouse_scroll', dx: 0, dy: -clicks });
+        PocketDeck.send({ type: 'mouse_scroll', dx: 0, dy: clicks });
         _scrollAcc -= clicks * (5 / CFG.scrollRatio); // keep remainder instead of hard-reset
       }
 
@@ -302,7 +302,7 @@
 
     if (!info) return;
 
-    const dt    = Date.now() - info.startTime;
+    const dt = Date.now() - info.startTime;
     const moveX = Math.abs(e.clientX - info.startX);
     const moveY = Math.abs(e.clientY - info.startY);
     const isTap = dt < CFG.tapMaxMs && moveX < CFG.tapMaxMovePx && moveY < CFG.tapMaxMovePx;
@@ -373,16 +373,16 @@
     '⌫': 'backspace', '↵': 'enter', '⏎': 'enter',
   };
   const ROWS = [
-    ['1','2','3','4','5','6','7','8','9','0','-','=','⌫'],
-    ['Q','W','E','R','T','Y','U','I','O','P','[',']'],
-    ['A','S','D','F','G','H','J','K','L',';',"'",'\u21b5'],
-    ['Z','X','C','V','B','N','M',',','.','/']
+    ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', '⌫'],
+    ['Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P', '[', ']'],
+    ['A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', ';', "'", '\u21b5'],
+    ['Z', 'X', 'C', 'V', 'B', 'N', 'M', ',', '.', '/']
   ];
 
   function _sendKey(key) {
-    const activeMods = Object.entries(_mods).filter(([,v])=>v).map(([k])=>k);
+    const activeMods = Object.entries(_mods).filter(([, v]) => v).map(([k]) => k);
     const hasShiftOnly = activeMods.length === 1 && _mods.shift;
-    const hasNoMods    = activeMods.length === 0;
+    const hasNoMods = activeMods.length === 0;
     const combo = activeMods.length ? [...activeMods, key].join('+') : key;
     PocketDeck.send({ type: 'key_tap', key: combo });
 
@@ -461,9 +461,9 @@
     const modRow = document.createElement('div');
     modRow.className = 'kbs-row';
     [
-      ['Esc','esc',null], ['Ctrl',null,'ctrl'],
-      ['Alt',null,'alt'], ['\u2756Win',null,'win'],
-      ['Shift',null,'shift'], ['Tab','tab',null],
+      ['Esc', 'esc', null], ['Ctrl', null, 'ctrl'],
+      ['Alt', null, 'alt'], ['\u2756Win', null, 'win'],
+      ['Shift', null, 'shift'], ['Tab', 'tab', null],
     ].forEach(([label, key, mod]) => {
       const btn = document.createElement('button');
       btn.className = 'kbs-key kbs-mod';
@@ -490,7 +490,7 @@
       row.className = 'kbs-row';
       rowKeys.forEach(k => {
         const keyName = KEY_MAP[k] || k.toLowerCase();
-        const isWide  = k === '⌫' || k === '↵';
+        const isWide = k === '⌫' || k === '↵';
         row.appendChild(_makeKey(k, keyName, `kbs-key${isWide ? ' kbs-wide' : ''}`));
       });
       sheet.appendChild(row);
@@ -507,7 +507,7 @@
       _sendKey('space');
     });
     bottomRow.appendChild(spaceBtn);
-    [['\u2190','left'],['\u2191','up'],['\u2193','down'],['\u2192','right']].forEach(([lbl,k]) => {
+    [['\u2190', 'left'], ['\u2191', 'up'], ['\u2193', 'down'], ['\u2192', 'right']].forEach(([lbl, k]) => {
       const b = document.createElement('button');
       b.className = 'kbs-key kbs-arrow';
       b.textContent = lbl;
@@ -565,7 +565,7 @@
     // ── Persistent ▲ toggle button (always visible when sheet is hidden) ───
     // Lives outside the sheet so it's not covered by it.
     const $toggle = document.createElement('button');
-    $toggle.id        = 'kbd-toggle-btn';
+    $toggle.id = 'kbd-toggle-btn';
     $toggle.className = 'kbd-toggle-btn';
     $toggle.innerHTML = '▲';
     $toggle.setAttribute('aria-label', 'Show keyboard');
@@ -587,7 +587,7 @@
     // means that pointer ID is still "owned" by $touchpad. If not released,
     // fingers touching the keyboard will still fire events on the touchpad.
     for (const [id] of _ptrs) {
-      try { $touchpad.releasePointerCapture(id); } catch (_) {}
+      try { $touchpad.releasePointerCapture(id); } catch (_) { }
     }
     _ptrs.clear();
     _resetSmoothing();
@@ -624,7 +624,7 @@
   `;
   $panel.appendChild($sliderRow);
 
-  document.getElementById('sens-slider').addEventListener('input', function() {
+  document.getElementById('sens-slider').addEventListener('input', function () {
     CFG.sensitivity = parseFloat(this.value);
     document.getElementById('sens-val').textContent = CFG.sensitivity + '×';
   });
@@ -633,16 +633,16 @@
   window.TouchpadPanel = {
     reset() {
       if (_rafId !== null) { cancelAnimationFrame(_rafId); _rafId = null; }
-      _ptrs.forEach((_, id) => { try { $touchpad.releasePointerCapture(id); } catch (_) {} });
+      _ptrs.forEach((_, id) => { try { $touchpad.releasePointerCapture(id); } catch (_) { } });
       _ptrs.clear();
       _resetSmoothing();
       _gestureTriggered = false;
       _gestureStartPtrs = [];
-      _lastMoveTime     = 0;
+      _lastMoveTime = 0;
       _hideKeyboard();
     },
-    showKeyboard:  _showKeyboard,
-    hideKeyboard:  _hideKeyboard,
+    showKeyboard: _showKeyboard,
+    hideKeyboard: _hideKeyboard,
   };
 
 })();
