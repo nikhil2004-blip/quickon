@@ -254,7 +254,7 @@
       if (Math.abs(_scrollAcc) >= 3) {
         const clicks = Math.round(_scrollAcc / (3 / CFG.scrollRatio));
         // Positive dy = drag down = scroll content down (natural scrolling)
-        PocketDeck.send({ type: 'mouse_scroll', dx: 0, dy: clicks });
+        PocketDeck.send({ type: 'mouse_scroll', dx: 0, dy: -clicks });
         _scrollAcc = 0;
       }
 
