@@ -41,7 +41,7 @@
   };
 
   // ── State ─────────────────────────────────────────────────────
-  /** Map<pointerId, {x, y, startX, startY, startTime}> */
+  /** Map<pointerId, {x, y, startX, startY, startTime, primed}> */
   const _ptrs = new Map();
 
 
@@ -210,6 +210,7 @@
       x: e.clientX, y: e.clientY,
       startX: e.clientX, startY: e.clientY,
       startTime: Date.now(),
+      primed: false,
     });
 
     // Update touch glow for the primary pointer (first finger down)
@@ -244,6 +245,13 @@
     const count = _ptrs.size;
 
     if (count === 1) {
+      // The first move sample after pointerdown is often a noisy jump on mobile.
+      // Skip it to avoid the startup jitter burst.
+      if (!prev.primed) {
+        prev.primed = true;
+        return;
+      }
+
       // Finger tracking glow update
       const rect = $touchpad.getBoundingClientRect();
       const tx = e.clientX - rect.left;
@@ -695,8 +703,7 @@
   // Shows a floating toggle button at the bottom-right of the touchpad.
   // ON: sends mouse_button {button:"left", pressed:true}  — cursor moves drag
   // OFF: sends mouse_button {button:"left", pressed:false} — releases
-  // Auto-cancels after 10 seconds of no movement to prevent getting stuck.
-  let _dragLockTimer = null;
+  // No auto-timeout: stays active until explicit release.
 
   function _setDragLock(active) {
     if (_dragLocked === active) return;
@@ -710,11 +717,6 @@
     if (active) {
       // Clear panel-switch inhibit instantly so user can drag right away
       _inhibitUntil = 0;
-      // Auto-release after 15 s safety fallback
-      clearTimeout(_dragLockTimer);
-      _dragLockTimer = setTimeout(() => _setDragLock(false), 15_000);
-    } else {
-      clearTimeout(_dragLockTimer);
     }
   }
 

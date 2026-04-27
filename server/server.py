@@ -16,15 +16,41 @@ import logging
 import os
 import socket
 import sys
-import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-import pystray
-from PIL import Image
-
 import websockets
 from websockets.server import serve, WebSocketServerProtocol
+
+
+def _detach_console_after_connect() -> None:
+    """Detach from the Windows console so the taskbar console entry disappears."""
+    if os.name != "nt" or not getattr(sys, "frozen", False):
+        return
+
+    try:
+        import ctypes
+
+        # Move stdio away from the console before detaching to avoid write errors.
+        devnull = open(os.devnull, "w", encoding="utf-8")
+        sys.stdout = devnull
+        sys.stderr = devnull
+
+        root_logger = logging.getLogger()
+        for handler in root_logger.handlers:
+            if hasattr(handler, "setStream"):
+                try:
+                    handler.setStream(devnull)
+                except Exception:
+                    pass
+
+        console_window = ctypes.windll.kernel32.GetConsoleWindow()
+        if console_window:
+            ctypes.windll.user32.ShowWindow(console_window, 0)
+
+        ctypes.windll.kernel32.FreeConsole()
+    except Exception:
+        logging.getLogger("pocketdeck").debug("Unable to detach console window", exc_info=True)
 
 # ── local imports & path setup ──────────────────────────────────
 # Handle PyInstaller _MEIPASS extraction directory for standalone .exe
@@ -34,13 +60,6 @@ if getattr(sys, 'frozen', False):
     _SERVER_DIR = _BASE_DIR / "server"
     sys.path.insert(0, str(_SERVER_DIR))
     CLIENT_DIR = _BASE_DIR / "client"
-    
-    # Redirect stdout and stderr to devnull to prevent console write errors
-    # when running with --noconsole
-    if sys.stdout is None:
-        sys.stdout = open(os.devnull, 'w')
-    if sys.stderr is None:
-        sys.stderr = open(os.devnull, 'w')
 else:
     # Running in normal development environment
     _SERVER_DIR = Path(__file__).parent
@@ -49,7 +68,7 @@ else:
 
 from utils.auth import generate_token, validate_token
 from utils.network import get_local_ips, get_os_name
-from utils.qr import print_startup_banner, show_qr_image
+from utils.qr import print_startup_banner
 from handlers.mouse import (
     handle_mouse_move, handle_mouse_click, handle_mouse_scroll, handle_mouse_button
 )
@@ -133,6 +152,7 @@ async def handle_connection(ws: WebSocketServerProtocol) -> None:
         return
 
     logger.info(f"Authenticated: {client_addr}")
+    _detach_console_after_connect()
     await ws.send(json.dumps({"type": "auth_ok"}))
 
     # Send server_info
@@ -240,33 +260,26 @@ async def _dispatch(ws: WebSocketServerProtocol, raw: str) -> None:
 
 async def _serve_http() -> None:
     """
-    Threaded HTTP server that serves the client/ directory.
-    Uses ThreadingHTTPServer so mobile browsers can make multiple parallel
-    requests (HTML + CSS + JS) without queuing behind each other.
+    Minimal asyncio-compatible HTTP server that serves the client/ directory.
+    Uses Python's built-in http.server.SimpleHTTPRequestHandler in a thread pool
+    so it doesn't block the event loop.
     """
     import http.server
     import threading
+    import functools
 
-    client_dir = str(CLIENT_DIR)
+    handler = functools.partial(
+        http.server.SimpleHTTPRequestHandler,
+        directory=str(CLIENT_DIR),
+    )
+    # Silence the request log spam from SimpleHTTPRequestHandler
+    handler.log_message = lambda *args: None  # type: ignore[attr-defined]
 
-    # Subclass to silence noisy request logs and fix directory binding.
-    class _QuietHandler(http.server.SimpleHTTPRequestHandler):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, directory=client_dir, **kwargs)
-
-        def log_message(self, format, *args):  # noqa: A002
-            pass  # suppress all access logs
-
-        def log_error(self, format, *args):  # noqa: A002
-            pass  # suppress all error logs
-
-    # ThreadingHTTPServer — handles each request in its own thread so parallel
-    # asset fetches (html/css/js) don't block one another.
-    server = http.server.ThreadingHTTPServer(("0.0.0.0", HTTP_PORT), _QuietHandler)
+    server = http.server.HTTPServer(("0.0.0.0", HTTP_PORT), handler)
 
     logger.info(f"HTTP server → http://0.0.0.0:{HTTP_PORT}  (serving {CLIENT_DIR})")
 
-    # Run in a daemon thread — lives as long as the process
+    # Run in a daemon thread — it lives as long as the process
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
 
@@ -308,74 +321,8 @@ async def main() -> None:
         await asyncio.Future()   # run forever
 
 
-def run_tray_icon(ips: list[str], http_port: int, ws_port: int, token: str):
-    icon_path = _BASE_DIR / "app.ico" if getattr(sys, 'frozen', False) else _SERVER_DIR.parent / "app.ico"
-    
-    try:
-        image = Image.open(str(icon_path))
-    except Exception as e:
-        logger.error(f"Failed to load icon from {icon_path}: {e}")
-        # fallback to a blank image
-        image = Image.new('RGB', (64, 64), color='white')
-
-    url = f"http://{ips[0]}:{http_port}" if ips else f"http://127.0.0.1:{http_port}"
-    
-    def on_show_qr(icon, item):
-        logger.info("Show QR Code clicked.")
-        show_qr_image(url, token)
-        
-    def on_exit(icon, item):
-        logger.info("Tray Exit clicked.")
-        icon.stop()
-        os._exit(0)
-
-    menu = pystray.Menu(
-        pystray.MenuItem(f'Token: {token}', lambda: None, enabled=False),
-        pystray.MenuItem('Show QR Code', on_show_qr),
-        pystray.MenuItem('Exit PocketDeck', on_exit)
-    )
-    
-    icon = pystray.Icon("PocketDeck", image, "PocketDeck Server", menu)
-    
-    def setup(icon):
-        icon.visible = True
-        try:
-            icon.notify(f"Server running at {url}\nToken: {token}", "PocketDeck")
-        except:
-            pass
-            
-    if getattr(sys, 'frozen', False):
-        try:
-            show_qr_image(url, token)
-        except Exception as e:
-            logger.error(f"Failed to auto-show QR: {e}")
-            
-    icon.run(setup)
-
-def run_asyncio_loop():
-    # We must create a new event loop for this thread
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        loop.run_until_complete(main())
-    except Exception as e:
-        logger.error(f"Event loop failed: {e}")
-
 if __name__ == "__main__":
-    TOKEN = "123456"
-
-    # Start the asyncio server loop in a background daemon thread
-    server_thread = threading.Thread(target=run_asyncio_loop, daemon=True)
-    server_thread.start()
-
-    # Give servers a moment to bind before advertising the QR code.
-    # Without this the QR may appear before the HTTP port is open.
-    import time
-    time.sleep(1.0)
-
-    ips = get_local_ips()
-    if not ips:
-        ips = ["127.0.0.1"]
-
-    # Start the blocking system tray loop on the main thread
-    run_tray_icon(ips, HTTP_PORT, WS_PORT, TOKEN)
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        logger.info("Shutting down — goodbye!")

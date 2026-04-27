@@ -129,7 +129,7 @@ def handle_mouse_scroll(dx: float, dy: float) -> None:
     """
     if _IS_WINDOWS:
         if dy != 0:
-            _send_mouse(MOUSE_WHEEL, data=int(dy * 30))
+            _send_mouse(MOUSE_WHEEL, data=int(-dy * 30))
         if dx != 0:
             _send_mouse(MOUSE_HWHEEL, data=int(dx * 30))
     elif _PYNPUT_OK:

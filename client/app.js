@@ -256,13 +256,12 @@ document.querySelectorAll('.tab').forEach(tab => {
       TouchpadPanel.reset();
     }
 
-    // ── Switching TO touchpad: hard-reset + 350ms input inhibit ──
-    // Widget launch takes ~200-400ms on Windows; the OS queues any
-    // pointer events that fired during that window and dumps them all
-    // at once when the event loop drains. The inhibit absorbs that burst.
+    // ── Switching TO touchpad: hard-reset + short input inhibit ──
+    // Keep this short so first movement feels immediate, while still
+    // absorbing the panel-switch event burst on some Android devices.
     if (panelId === 'touchpad' && window.TouchpadPanel) {
       if (TouchpadPanel.reset) TouchpadPanel.reset();
-      if (TouchpadPanel.inhibit) TouchpadPanel.inhibit(350);
+      if (TouchpadPanel.inhibit) TouchpadPanel.inhibit(70);
     }
   });
 });
