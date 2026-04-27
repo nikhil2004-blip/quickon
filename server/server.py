@@ -240,26 +240,33 @@ async def _dispatch(ws: WebSocketServerProtocol, raw: str) -> None:
 
 async def _serve_http() -> None:
     """
-    Minimal asyncio-compatible HTTP server that serves the client/ directory.
-    Uses Python's built-in http.server.SimpleHTTPRequestHandler in a thread pool
-    so it doesn't block the event loop.
+    Threaded HTTP server that serves the client/ directory.
+    Uses ThreadingHTTPServer so mobile browsers can make multiple parallel
+    requests (HTML + CSS + JS) without queuing behind each other.
     """
     import http.server
     import threading
-    import functools
 
-    handler = functools.partial(
-        http.server.SimpleHTTPRequestHandler,
-        directory=str(CLIENT_DIR),
-    )
-    # Silence the request log spam from SimpleHTTPRequestHandler
-    handler.log_message = lambda *args: None  # type: ignore[attr-defined]
+    client_dir = str(CLIENT_DIR)
 
-    server = http.server.HTTPServer(("0.0.0.0", HTTP_PORT), handler)
+    # Subclass to silence noisy request logs and fix directory binding.
+    class _QuietHandler(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=client_dir, **kwargs)
+
+        def log_message(self, format, *args):  # noqa: A002
+            pass  # suppress all access logs
+
+        def log_error(self, format, *args):  # noqa: A002
+            pass  # suppress all error logs
+
+    # ThreadingHTTPServer — handles each request in its own thread so parallel
+    # asset fetches (html/css/js) don't block one another.
+    server = http.server.ThreadingHTTPServer(("0.0.0.0", HTTP_PORT), _QuietHandler)
 
     logger.info(f"HTTP server → http://0.0.0.0:{HTTP_PORT}  (serving {CLIENT_DIR})")
 
-    # Run in a daemon thread — it lives as long as the process
+    # Run in a daemon thread — lives as long as the process
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
 
@@ -360,10 +367,15 @@ if __name__ == "__main__":
     # Start the asyncio server loop in a background daemon thread
     server_thread = threading.Thread(target=run_asyncio_loop, daemon=True)
     server_thread.start()
-    
+
+    # Give servers a moment to bind before advertising the QR code.
+    # Without this the QR may appear before the HTTP port is open.
+    import time
+    time.sleep(1.0)
+
     ips = get_local_ips()
     if not ips:
         ips = ["127.0.0.1"]
-        
+
     # Start the blocking system tray loop on the main thread
     run_tray_icon(ips, HTTP_PORT, WS_PORT, TOKEN)
