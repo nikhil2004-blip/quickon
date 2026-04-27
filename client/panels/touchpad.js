@@ -24,6 +24,11 @@
   // ── DOM ──────────────────────────────────────────────────────
   const $touchpad = document.getElementById('touchpad');
 
+  // Inject glow element for finger tracking
+  const $touchGlow = document.createElement('div');
+  $touchGlow.className = 'touch-glow';
+  $touchpad.appendChild($touchGlow);
+
   // ── Config ────────────────────────────────────────────────────
   const CFG = {
     sensitivity: 3.0,   // px multiplier — tuned for full HD coverage
@@ -158,14 +163,17 @@
         position: 'absolute',
         top: '50%', left: '50%',
         transform: 'translate(-50%, -50%)',
-        background: 'rgba(99,102,241,0.85)',
-        color: '#fff',
-        fontSize: '18px',
-        fontWeight: '700',
-        padding: '12px 24px',
-        borderRadius: '12px',
+        background: 'rgba(24, 24, 27, 0.75)',
+        border: '1px solid rgba(255,255,255,0.06)',
+        color: '#f4f4f5',
+        fontSize: '16px',
+        fontWeight: '500',
+        padding: '10px 20px',
+        borderRadius: '16px',
         pointerEvents: 'none',
         zIndex: '99',
+        backdropFilter: 'blur(12px)',
+        WebkitBackdropFilter: 'blur(12px)',
         transition: 'opacity .3s ease',
       });
       $touchpad.appendChild(el);
@@ -204,6 +212,15 @@
       startTime: Date.now(),
     });
 
+    // Update touch glow for the primary pointer (first finger down)
+    if (_ptrs.size === 1) {
+      const rect = $touchpad.getBoundingClientRect();
+      const tx = e.clientX - rect.left;
+      const ty = e.clientY - rect.top;
+      $touchGlow.style.transform = `translate(${tx}px, ${ty}px)`;
+      $touchGlow.classList.add('active');
+    }
+
     // Reset gesture state when finger count changes
     if (_ptrs.size >= 2) {
       _gestureTriggered = false;
@@ -227,6 +244,12 @@
     const count = _ptrs.size;
 
     if (count === 1) {
+      // Finger tracking glow update
+      const rect = $touchpad.getBoundingClientRect();
+      const tx = e.clientX - rect.left;
+      const ty = e.clientY - rect.top;
+      $touchGlow.style.transform = `translate(${tx}px, ${ty}px)`;
+
       // Single finger → move mouse: accumulate and flush via rAF (~60/s)
       if (Date.now() < _inhibitUntil) return;  // absorb OS burst after panel switch
       const { dx, dy } = _applyDead(rawDx, rawDy);
@@ -270,6 +293,11 @@
     e.preventDefault();
     const info = _ptrs.get(e.pointerId);
     _ptrs.delete(e.pointerId);
+
+    // Fade out glow if no fingers left
+    if (_ptrs.size === 0) {
+      $touchGlow.classList.remove('active');
+    }
 
     if (!info) return;
 
@@ -328,8 +356,10 @@
 
 
   $touchpad.addEventListener('pointercancel', e => {
+    e.preventDefault();
     _ptrs.delete(e.pointerId);
     if (_ptrs.size === 0) {
+      $touchGlow.classList.remove('active');
       _resetSmoothing();
       _gestureTriggered = false;
     }

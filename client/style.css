@@ -6,34 +6,34 @@
 
 /* ── Design tokens ─────────────────────────────────────────── */
 :root {
-  --bg-base:     #0f0f13;
-  --bg-surface:  #18181f;
-  --bg-raised:   #222230;
-  --bg-overlay:  #2a2a3a;
+  --bg-base:     #09090b;       /* zinc-950 */
+  --bg-surface:  #141417;
+  --bg-raised:   #1f1f23;
+  --bg-overlay:  #27272a;
 
-  --accent:      #6366f1;       /* indigo */
-  --accent-glow: rgba(99,102,241,.25);
-  --accent-dim:  #4f52cc;
+  --accent:      #71717a;       /* zinc-500 */
+  --accent-glow: rgba(113, 113, 122, 0.1);
+  --accent-dim:  #52525b;
 
-  --success:     #22c55e;
-  --warning:     #f59e0b;
-  --danger:      #ef4444;
+  --success:     #4ade80;
+  --warning:     #fbbf24;
+  --danger:      #f87171;
 
-  --text-primary:   #f0f0f6;
-  --text-secondary: #a0a0b8;
-  --text-muted:     #606078;
+  --text-primary:   #f4f4f5;    /* zinc-50 */
+  --text-secondary: #a1a1aa;    /* zinc-400 */
+  --text-muted:     #71717a;    /* zinc-500 */
 
-  --border:      rgba(255,255,255,.08);
-  --border-strong: rgba(255,255,255,.15);
+  --border:      rgba(255,255,255,.04);
+  --border-strong: rgba(255,255,255,.08);
 
   --radius-sm:   8px;
-  --radius-md:   14px;
-  --radius-lg:   20px;
+  --radius-md:   16px;
+  --radius-lg:   24px;
   --radius-pill: 999px;
 
-  --shadow-sm:   0 1px 3px rgba(0,0,0,.4);
-  --shadow-md:   0 4px 16px rgba(0,0,0,.5);
-  --shadow-glow: 0 0 20px var(--accent-glow);
+  --shadow-sm:   0 2px 8px rgba(0,0,0,.3);
+  --shadow-md:   0 8px 24px rgba(0,0,0,.4);
+  --shadow-glow: 0 0 16px var(--accent-glow);
 
   --font-sans:   'Inter', system-ui, -apple-system, sans-serif;
   --font-mono:   'JetBrains Mono', 'Fira Code', monospace;
@@ -78,7 +78,7 @@ html, body {
 #connect-screen {
   align-items: center;
   justify-content: center;
-  background: radial-gradient(ellipse at 50% 30%, rgba(99,102,241,.15) 0%, transparent 70%),
+  background: radial-gradient(ellipse at 50% 30%, rgba(255,255,255,.03) 0%, transparent 70%),
               var(--bg-base);
   padding: 24px;
 }
@@ -171,12 +171,13 @@ input[type="text"]:focus {
 .btn:active { transform: scale(.96); }
 
 .btn-primary {
-  background: var(--accent);
-  color: #fff;
-  box-shadow: 0 2px 8px var(--accent-glow);
+  background: var(--bg-raised);
+  color: var(--text-primary);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-sm);
 }
-.btn-primary:hover { background: var(--accent-dim); }
-.btn-primary:active { background: var(--accent-dim); box-shadow: none; }
+.btn-primary:hover { background: var(--accent-dim); color: #fff; }
+.btn-primary:active { background: var(--accent-dim); box-shadow: none; border-color: transparent; }
 
 /* ── App screen layout ──────────────────────────────────────── */
 #app-screen {
@@ -270,7 +271,7 @@ input[type="text"]:focus {
 .touchpad::before {
   content: '';
   position: absolute; inset: 0;
-  background: radial-gradient(ellipse at 50% 50%, rgba(99,102,241,.04) 0%, transparent 70%);
+  background: radial-gradient(ellipse at 50% 50%, rgba(255,255,255,.015) 0%, transparent 70%);
   pointer-events: none;
 }
 
@@ -282,6 +283,27 @@ input[type="text"]:focus {
   color: var(--text-muted);
   pointer-events: none;
   user-select: none;
+  opacity: 0.5;
+}
+
+/* Finger tracking glow */
+.touch-glow {
+  position: absolute;
+  width: 140px;
+  height: 140px;
+  margin-left: -70px;
+  margin-top: -70px;
+  background: radial-gradient(circle closest-side, rgba(255,255,255,0.06), transparent);
+  pointer-events: none;
+  border-radius: 50%;
+  will-change: transform, opacity;
+  opacity: 0;
+  transition: opacity 0.4s ease;
+  z-index: 10;
+}
+.touch-glow.active {
+  opacity: 1;
+  transition: opacity 0.1s ease; /* fast fade in */
 }
 
 
@@ -334,11 +356,12 @@ input[type="text"]:focus {
 }
 #sens-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
-  width: 18px; height: 18px;
+  width: 16px; height: 16px;
   border-radius: 50%;
-  background: var(--accent);
+  background: var(--text-secondary);
   cursor: pointer;
-  box-shadow: 0 0 6px var(--accent-glow);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid rgba(255,255,255,.1);
 }
 
 /* ── Gesture flash overlay ───────────────────────────────────── */
@@ -966,8 +989,8 @@ input[type="text"]:focus {
 .drag-lock-btn {
   position: absolute;
   /* above the slider row (≈36px) + safe-area clearance, matches kbd-toggle-btn logic */
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 64px);
-  right: 14px;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 52px);
+  left: 14px;
   z-index: 20;
   background: var(--bg-raised);
   color: var(--text-secondary);

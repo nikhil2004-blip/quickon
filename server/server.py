@@ -22,10 +22,19 @@ from pathlib import Path
 import websockets
 from websockets.server import serve, WebSocketServerProtocol
 
-# ── local imports ─────────────────────────────────────────────
-# Adjust path so we can run as: python server/server.py
-_SERVER_DIR = Path(__file__).parent
-sys.path.insert(0, str(_SERVER_DIR))
+# ── local imports & path setup ──────────────────────────────────
+# Handle PyInstaller _MEIPASS extraction directory for standalone .exe
+if getattr(sys, 'frozen', False):
+    # Running as packaged executable
+    _BASE_DIR = Path(sys._MEIPASS)
+    _SERVER_DIR = _BASE_DIR / "server"
+    sys.path.insert(0, str(_SERVER_DIR))
+    CLIENT_DIR = _BASE_DIR / "client"
+else:
+    # Running in normal development environment
+    _SERVER_DIR = Path(__file__).parent
+    sys.path.insert(0, str(_SERVER_DIR))
+    CLIENT_DIR = _SERVER_DIR.parent / "client"
 
 from utils.auth import generate_token, validate_token
 from utils.network import get_local_ips, get_os_name
@@ -41,8 +50,6 @@ from handlers.media import handle_media
 WS_PORT   = 8765
 HTTP_PORT = 8766
 AUTH_TIMEOUT = 3.0   # seconds to authenticate before drop
-
-CLIENT_DIR = _SERVER_DIR.parent / "client"
 
 # ── logging ───────────────────────────────────────────────────
 logging.basicConfig(
