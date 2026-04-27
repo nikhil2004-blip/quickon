@@ -247,6 +247,13 @@ input[type="text"]:focus {
 .panel.active { display: flex; }
 
 /* ── Touchpad panel ─────────────────────────────────────────── */
+/* Give the panel itself bottom padding equal to the Android gesture nav bar
+   height. env(safe-area-inset-bottom) is populated automatically by Chrome
+   when viewport-fit=cover is set in the meta tag. */
+#panel-touchpad {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
 .touchpad {
   flex: 1;
   background: var(--bg-surface);
@@ -279,18 +286,6 @@ input[type="text"]:focus {
 
 
 
-/* ── Coming soon placeholder ────────────────────────────────── */
-.coming-soon {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 12px;
-  color: var(--text-muted);
-  font-size: 14px;
-}
-.coming-soon span { font-size: 48px; }
 
 /* ── Widgets grid ────────────────────────────────────────────── */
 .widgets-grid {
@@ -357,115 +352,20 @@ input[type="text"]:focus {
 .hidden { display: none !important; }
 
 /* ═══════════════════════════════════════════════════════════════
-   KEYBOARD PANEL
+   RESPONSIVENESS (Landscape & Desktop)
 ═══════════════════════════════════════════════════════════════ */
-
-#panel-keyboard {
-  display: none;
-  flex-direction: column;
-  padding: 6px;
-  gap: 4px;
-  overflow: hidden;
-  background: var(--bg-base);
-  touch-action: none;
+@media (min-width: 768px) {
+  .screen {
+    right: auto;
+    width: 100%;
+    max-width: 600px;
+    left: 50%;
+    transform: translateX(-50%);
+    border-left: 1px solid var(--border);
+    border-right: 1px solid var(--border);
+    box-shadow: 0 0 50px rgba(0,0,0,0.8);
+  }
 }
-#panel-keyboard.active { display: flex; }
-
-/* Bulk-type area */
-.kbd-bulk {
-  display: flex;
-  gap: 6px;
-  padding: 6px 4px;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 4px;
-}
-.kbd-bulk textarea {
-  flex: 1;
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--text-primary);
-  font-family: var(--font-sans);
-  font-size: 14px;
-  padding: 8px;
-  resize: none;
-  touch-action: auto;
-}
-.kbd-bulk-btn {
-  background: var(--accent);
-  border: none;
-  border-radius: var(--radius-sm);
-  color: #fff;
-  font-size: 14px;
-  font-weight: 600;
-  padding: 0 16px;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-/* Key rows */
-.kbd-row {
-  display: flex;
-  gap: 3px;
-  justify-content: center;
-}
-.kbd-frow {
-  display: flex;
-  gap: 3px;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
-  scrollbar-width: none;
-  padding-bottom: 2px;
-}
-.kbd-frow::-webkit-scrollbar { display: none; }
-
-/* Individual key button */
-.kbd-key {
-  background: var(--bg-raised);
-  border: 1px solid var(--border-strong);
-  border-bottom: 3px solid rgba(0,0,0,.5);
-  border-radius: 6px;
-  color: var(--text-primary);
-  cursor: pointer;
-  font-family: var(--font-sans);
-  font-size: 13px;
-  font-weight: 500;
-  min-width: 32px;
-  min-height: 40px;
-  padding: 0 4px;
-  text-align: center;
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background .08s, transform .06s, border-color .08s;
-  -webkit-tap-highlight-color: transparent;
-  touch-action: manipulation;
-}
-.kbd-key:active {
-  background: var(--accent);
-  border-color: var(--accent);
-  transform: scale(.92) translateY(1px);
-  border-bottom-width: 1px;
-}
-
-/* Special key widths */
-.kbd-fn    { min-width: 36px; font-size: 11px; background: var(--bg-overlay); }
-.kbd-wide  { min-width: 56px; }
-.kbd-space { flex: 1; }
-.kbd-arrow { min-width: 38px; font-size: 16px; }
-.kbd-mod   { min-width: 48px; font-size: 12px; background: var(--bg-overlay); color: var(--text-secondary); }
-
-/* Sticky modifier active state */
-.kbd-mod.active, .kbd-mod:focus {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: #fff;
-  box-shadow: 0 0 8px var(--accent-glow);
-}
-
-/* Modifier row layout */
-.kbd-modrow { flex-wrap: wrap; }
 
 
 /* ═══════════════════════════════════════════════════════════════
@@ -476,28 +376,6 @@ input[type="text"]:focus {
   position: relative;
 }
 
-/* Floating toggle button */
-.term-kbd-toggle {
-  position: absolute;
-  bottom: 8px;
-  right: 8px;
-  z-index: 20;
-  background: var(--accent);
-  border: none;
-  border-radius: 50%;
-  color: #fff;
-  font-size: 18px;
-  width: 42px;
-  height: 42px;
-  cursor: pointer;
-  box-shadow: 0 2px 12px rgba(99,102,241,.4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background .15s, transform .15s;
-  touch-action: manipulation;
-}
-.term-kbd-toggle.active { background: #4338ca; transform: rotate(10deg); }
 
 /* Terminal keyboard overlay panel */
 .term-kbd {
@@ -946,7 +824,8 @@ input[type="text"]:focus {
 /* ▲ Persistent keyboard toggle button — floats above the sensitivity slider */
 .kbd-toggle-btn {
   position: absolute;
-  bottom: 52px;       /* just above the slider row */
+  /* Stack above the slider (≈36px tall) + safe-area clearance */
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 52px);
   right: 14px;
   z-index: 40;        /* below the sheet (z:50) so it hides under it naturally */
   background: rgba(30, 30, 50, 0.85);
@@ -1086,7 +965,8 @@ input[type="text"]:focus {
    When active the left mouse button is held on the PC for drag-select. */
 .drag-lock-btn {
   position: absolute;
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 64px); /* above the slider row */
+  /* above the slider row (≈36px) + safe-area clearance, matches kbd-toggle-btn logic */
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 64px);
   right: 14px;
   z-index: 20;
   background: var(--bg-raised);

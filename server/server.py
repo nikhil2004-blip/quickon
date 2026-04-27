@@ -57,8 +57,16 @@ TOKEN: str = ""
 active_terminals = {}
 
 # Thread pool for blocking syscalls (SendInput, pynput) so they don't stall the event loop.
-# Use 4 workers: mouse_move comes in at ~60/s, needs a dedicated fast path.
-_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="input")
+#
+# IMPORTANT — two separate executors:
+#   _move_executor  (1 worker)  — mouse_move only.  Single-threaded so that
+#       SendInput calls are always serialized; a 4-worker pool lets concurrent
+#       calls race and arrive OUT OF ORDER at the OS → cursor jitter.
+#   _input_executor (2 workers) — everything else (clicks, keyboard, scroll).
+#       2 workers = click and keyboard can run concurrently without blocking each
+#       other, but never pile up behind a backlog of in-flight mouse moves.
+_move_executor  = ThreadPoolExecutor(max_workers=1, thread_name_prefix="move")
+_input_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="input")
 
 
 # ══════════════════════════════════════════════════════════════
@@ -155,34 +163,37 @@ async def _dispatch(ws: WebSocketServerProtocol, raw: str) -> None:
     # syscalls (SendInput) never stall the asyncio event loop.
     loop = asyncio.get_event_loop()
     if t == "mouse_move":
-        loop.run_in_executor(_executor, handle_mouse_move,
+        # mouse_move MUST use the single-worker executor to stay ordered.
+        # Concurrent SendInput(MOUSEEVENTF_MOVE) calls from multiple threads
+        # race inside Windows and can deliver deltas out of sequence → jitter.
+        loop.run_in_executor(_move_executor, handle_mouse_move,
                              msg.get("dx", 0), msg.get("dy", 0))
 
     elif t == "mouse_click":
-        loop.run_in_executor(_executor, handle_mouse_click,
+        loop.run_in_executor(_input_executor, handle_mouse_click,
                              msg.get("button", "left"), msg.get("double", False))
 
     elif t == "mouse_scroll":
-        loop.run_in_executor(_executor, handle_mouse_scroll,
+        loop.run_in_executor(_input_executor, handle_mouse_scroll,
                              msg.get("dx", 0), msg.get("dy", 0))
 
     elif t == "mouse_button":
         # Independent press/release — used for drag-lock (screenshot selection etc.)
-        loop.run_in_executor(_executor, handle_mouse_button,
+        loop.run_in_executor(_input_executor, handle_mouse_button,
                              msg.get("button", "left"), msg.get("pressed", True))
 
     # ── Keyboard ───────────────────────────────────────────────
     elif t == "key_tap":
-        loop.run_in_executor(_executor, handle_key_tap, msg.get("key", ""))
+        loop.run_in_executor(_input_executor, handle_key_tap, msg.get("key", ""))
 
     elif t == "key_down":
-        loop.run_in_executor(_executor, handle_key_down, msg.get("key", ""))
+        loop.run_in_executor(_input_executor, handle_key_down, msg.get("key", ""))
 
     elif t == "key_up":
-        loop.run_in_executor(_executor, handle_key_up, msg.get("key", ""))
+        loop.run_in_executor(_input_executor, handle_key_up, msg.get("key", ""))
 
     elif t == "text_type":
-        loop.run_in_executor(_executor, handle_text_type, msg.get("text", ""))
+        loop.run_in_executor(_input_executor, handle_text_type, msg.get("text", ""))
 
     # ── Terminal (Phase 3) ─────────────────────────────────────
     elif t == "terminal_in":

@@ -44,7 +44,7 @@
   let _accDx = 0;
   let _accDy = 0;
 
-  // rAF handle — no longer used for mouse moves but kept for reset() compatibility
+  // rAF handle — used to batch mouse moves (one send per frame, ~60/s)
   let _rafId = null;
 
   // Scroll accumulator
@@ -77,30 +77,47 @@
     _scrollAcc = 0;
   }
 
-  // ── Direct send — no rAF, no EMA, no lag ─────────────────────
-  // Raw deltas are already dead-zone filtered below.
-  // Sub-pixel remainders are kept in _accDx/_accDy across events
-  // so slow, precise movements still register.
+  // ── rAF-gated flush — ONE send per animation frame (~60/s) ──────
+  // Pointer events can fire 120+ times/sec on mobile. Without batching,
+  // every event sends a WebSocket message → the Python server queues
+  // hundreds of pynput tasks → cursor lags behind AND mouse_button
+  // release (e.g. screenshot) is buried at the back of that queue.
+  // rAF collapses all deltas in a frame into a single send.
   function _flushNow() {
-    let sendDx = _accDx | 0;
-    let sendDy = _accDy | 0;
+    _rafId = null;
 
-    // Nudge sub-pixel remainders ≥0.5 so very slow drags still move
+    // Math.trunc is correct here — | 0 has identical semantics but looks confusing.
+    // We compute the nudge BEFORE truncation so we don't accidentally double-move.
+    let sendDx = _accDx >= 0 ? Math.floor(_accDx) : Math.ceil(_accDx);
+    let sendDy = _accDy >= 0 ? Math.floor(_accDy) : Math.ceil(_accDy);
+
+    // Nudge sub-pixel remainders ≥0.5 so very slow drags still register
     if (sendDx === 0 && Math.abs(_accDx) >= 0.5) sendDx = _accDx > 0 ? 1 : -1;
     if (sendDy === 0 && Math.abs(_accDy) >= 0.5) sendDy = _accDy > 0 ? 1 : -1;
 
     if (sendDx !== 0 || sendDy !== 0) {
       PocketDeck.send({ type: 'mouse_move', dx: sendDx, dy: sendDy });
+      // Subtract only the integer part that was sent; keep sub-pixel remainder
       _accDx -= sendDx;
       _accDy -= sendDy;
     }
   }
 
+  function _scheduleFlush() {
+    if (_rafId === null) {
+      _rafId = requestAnimationFrame(_flushNow);
+    }
+  }
+
   // ── Raw delta computation (dead-zone only, no EMA) ───────────
+  // Zero-allocation version: writes into a reused result object instead of
+  // creating a new { dx, dy } on every pointermove event (120+ Hz on mobile).
+  // Avoids GC pressure that causes periodic micro-jitter on mid-range phones.
+  const _deadResult = { dx: 0, dy: 0 };
   function _applyDead(rawDx, rawDy) {
-    const dx = Math.abs(rawDx) < CFG.deadZonePx ? 0 : rawDx;
-    const dy = Math.abs(rawDy) < CFG.deadZonePx ? 0 : rawDy;
-    return { dx: dx * CFG.sensitivity, dy: dy * CFG.sensitivity };
+    _deadResult.dx = (Math.abs(rawDx) < CFG.deadZonePx ? 0 : rawDx) * CFG.sensitivity;
+    _deadResult.dy = (Math.abs(rawDy) < CFG.deadZonePx ? 0 : rawDy) * CFG.sensitivity;
+    return _deadResult;
   }
 
   // ── Gesture helper ────────────────────────────────────────────
@@ -190,7 +207,8 @@
     // Reset gesture state when finger count changes
     if (_ptrs.size >= 2) {
       _gestureTriggered = false;
-      _gestureStartPtrs = Array.from(_ptrs.values()).map(p => ({ ...p }));
+      // Snapshot without spread — copy only the fields needed for gesture detection
+      _gestureStartPtrs = Array.from(_ptrs.values()).map(p => ({ id: p.id, startX: p.startX, startY: p.startY }));
     }
   }, { passive: false });
 
@@ -202,18 +220,19 @@
     const rawDx = e.clientX - prev.x;
     const rawDy = e.clientY - prev.y;
 
-    // Update stored position
-    _ptrs.set(e.pointerId, { ...prev, x: e.clientX, y: e.clientY });
+    // Mutate in place — avoids a heap allocation + spread copy on every move event
+    prev.x = e.clientX;
+    prev.y = e.clientY;
 
     const count = _ptrs.size;
 
     if (count === 1) {
-      // Single finger → move mouse: apply dead-zone and sensitivity, send immediately
+      // Single finger → move mouse: accumulate and flush via rAF (~60/s)
       if (Date.now() < _inhibitUntil) return;  // absorb OS burst after panel switch
       const { dx, dy } = _applyDead(rawDx, rawDy);
       _accDx += dx;
       _accDy += dy;
-      _flushNow();   // send immediately — no rAF, no EMA, no lag
+      _scheduleFlush();  // batches all moves in this frame into one send
 
     } else if (count === 2) {
       // Two-finger drag → scroll
@@ -281,23 +300,18 @@
       const fingerCountAtTap = _ptrs.size + 1;
       if (fingerCountAtTap === 1) {
         // Double-tap detection: if two taps arrive within 300ms → show keyboard
+        // No setTimeout needed — pointerup already fires after the finger is gone.
+        // The 80ms delay was causing every click to feel 80ms late.
         const now = Date.now();
         if (now - _lastTapTime < 300) {
           _lastTapTime = 0;
-          setTimeout(() => {
-            if (_ptrs.size === 0 && !_gestureTriggered) {
-              PocketDeck.send({ type: 'mouse_click', button: 'left' });
-              _showKeyboard();
-            }
-          }, 80);
+          // Double-tap: send click immediately then show keyboard
+          PocketDeck.send({ type: 'mouse_click', button: 'left' });
+          _showKeyboard();
         } else {
-          // Single tap: left click
+          // Single tap: left click — fire immediately, no delay
           _lastTapTime = now;
-          setTimeout(() => {
-            if (_ptrs.size === 0 && !_gestureTriggered) {
-              PocketDeck.send({ type: 'mouse_click', button: 'left' });
-            }
-          }, 80);
+          PocketDeck.send({ type: 'mouse_click', button: 'left' });
         }
       } else if (fingerCountAtTap === 2) {
         PocketDeck.send({ type: 'mouse_click', button: 'right' });
@@ -632,7 +646,7 @@
   // ── Sensitivity slider (injected into panel) ──────────────────
   const $panel = document.getElementById('panel-touchpad');
   const $sliderRow = document.createElement('div');
-  $sliderRow.style.cssText = 'display:flex;align-items:center;gap:10px;padding:4px 12px 0;font-size:12px;color:var(--text-muted);flex-shrink:0;';
+  $sliderRow.style.cssText = 'display:flex;align-items:center;gap:10px;padding:4px 12px;padding-bottom:env(safe-area-inset-bottom,16px);font-size:12px;color:var(--text-muted);flex-shrink:0;';
   $sliderRow.innerHTML = `
     <span>🐢</span>
     <input type="range" id="sens-slider" min="1" max="6" step="0.5" value="${CFG.sensitivity}"
@@ -686,6 +700,13 @@
     _setDragLock(!_dragLocked);
   });
   document.getElementById('panel-touchpad').appendChild($dragLockBtn);
+
+  // ── Eagerly build the keyboard sheet so the ▲ toggle button ──
+  // is present from the very first load. Without this, _buildSheet()
+  // only runs on the first _showKeyboard() call — meaning the toggle
+  // button doesn't exist until after the user has opened and dismissed
+  // the keyboard at least once.
+  _buildSheet();
 
   // ── Public API ────────────────────────────────────────────────
   window.TouchpadPanel = {
