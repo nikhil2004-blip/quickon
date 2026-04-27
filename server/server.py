@@ -16,6 +16,7 @@ import logging
 import os
 import socket
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import websockets
@@ -52,6 +53,9 @@ logger = logging.getLogger("pocketdeck")
 # ── global state ──────────────────────────────────────────────
 TOKEN: str = ""
 active_terminals = {}
+
+# Thread pool for blocking syscalls (SendInput, pynput) so they don't stall the event loop
+_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="input")
 
 
 # ══════════════════════════════════════════════════════════════
@@ -144,14 +148,20 @@ async def _dispatch(ws: WebSocketServerProtocol, raw: str) -> None:
     t = msg.get("type", "")
 
     # ── Mouse ──────────────────────────────────────────────────
+    # Run ALL mouse/keyboard calls in the thread-pool so blocking Win32
+    # syscalls (SendInput) never stall the asyncio event loop.
+    loop = asyncio.get_event_loop()
     if t == "mouse_move":
-        handle_mouse_move(msg.get("dx", 0), msg.get("dy", 0))
+        loop.run_in_executor(_executor, handle_mouse_move,
+                             msg.get("dx", 0), msg.get("dy", 0))
 
     elif t == "mouse_click":
-        handle_mouse_click(msg.get("button", "left"), msg.get("double", False))
+        loop.run_in_executor(_executor, handle_mouse_click,
+                             msg.get("button", "left"), msg.get("double", False))
 
     elif t == "mouse_scroll":
-        handle_mouse_scroll(msg.get("dx", 0), msg.get("dy", 0))
+        loop.run_in_executor(_executor, handle_mouse_scroll,
+                             msg.get("dx", 0), msg.get("dy", 0))
 
     # ── Keyboard ───────────────────────────────────────────────
     elif t == "key_tap":
@@ -245,9 +255,10 @@ async def main() -> None:
         handle_connection,
         "0.0.0.0",
         WS_PORT,
-        # Ping every 20 seconds to keep connection alive over mobile networks
         ping_interval=20,
         ping_timeout=10,
+        # Disable Nagle's algorithm: send each frame immediately, no buffering
+        compression=None,
     ):
         logger.info("PocketDeck ready — waiting for connections…")
         await asyncio.Future()   # run forever

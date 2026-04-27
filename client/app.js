@@ -44,15 +44,25 @@ const $wsLabel       = document.getElementById('ws-label');
 // ── Public API (panels call this to send messages) ────────────
 const PocketDeck = {
   send(msg) {
-    if (_ws && _wsReady && _ws.readyState === WebSocket.OPEN) {
-      _ws.send(JSON.stringify(msg));
-      return true;
+    if (!(_ws && _wsReady && _ws.readyState === WebSocket.OPEN)) {
+      return false;   // silently drop — avoid queuing
     }
-    return false;   // silently drop — avoid queuing to keep latency predictable
+
+    // Backpressure guard for high-frequency mouse moves:
+    // If the send buffer already has data queued, drop this mouse_move.
+    // This prevents burst-delivery where all queued moves arrive late together.
+    // 4096 bytes = ~60 mouse_move messages — if we're this far behind, drop it.
+    if (msg.type === 'mouse_move' && _ws.bufferedAmount > 4096) {
+      return false;
+    }
+
+    _ws.send(JSON.stringify(msg));
+    return true;
   },
   get connected() { return _wsReady; },
 };
 window.PocketDeck = PocketDeck;
+
 
 // ── Panel routing ─────────────────────────────────────────────
 const _panelHandlers = {

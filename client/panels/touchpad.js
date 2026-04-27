@@ -63,7 +63,7 @@
 
   // Timestamp of last pointermove — used to detect inactivity gaps
   let _lastMoveTime = 0;
-  const INACTIVITY_RESET_MS = 120; // reset smoothing if no move for this long
+  const INACTIVITY_RESET_MS = 40; // reset smoothing after 40ms idle (was 120 — caused stutter on speed change)
 
   /** Nuke all smoothing/accumulator state — clean slate */
   function _resetSmoothing() {
@@ -82,13 +82,19 @@
 
   function _flush() {
     _rafId = null;
-    
-    const sendDx = Math.round(_accDx);
-    const sendDy = Math.round(_accDy);
-    
+
+    // Use truncation not rounding — rounding causes sign-flip jitter on slow moves.
+    // e.g. acc=0.7 → round→1, remainder=-0.3 → next frame sends -1 → back-and-forth
+    let sendDx = _accDx | 0;   // fast bitwise trunc (works for ±2^30)
+    let sendDy = _accDy | 0;
+
+    // Bias: if we have a sub-pixel remainder ≥0.5 that won't be sent, nudge it now
+    // This prevents perpetual sub-pixel buildup when moving diagonally slowly.
+    if (sendDx === 0 && Math.abs(_accDx) >= 0.5) sendDx = _accDx > 0 ? 1 : -1;
+    if (sendDy === 0 && Math.abs(_accDy) >= 0.5) sendDy = _accDy > 0 ? 1 : -1;
+
     if (sendDx !== 0 || sendDy !== 0) {
       PocketDeck.send({ type: 'mouse_move', dx: sendDx, dy: sendDy });
-      // Keep the fractional remainder! Losing this causes jagged circles.
       _accDx -= sendDx;
       _accDy -= sendDy;
     }
@@ -251,11 +257,10 @@
     } else if (count === 2) {
       // Two-finger drag → scroll
       _scrollAcc += rawDy;
-      if (Math.abs(_scrollAcc) >= 3) {
-        const clicks = Math.round(_scrollAcc / (3 / CFG.scrollRatio));
-        // Positive dy = drag down = scroll content down (natural scrolling)
+      if (Math.abs(_scrollAcc) >= 5) {
+        const clicks = Math.round(_scrollAcc / (5 / CFG.scrollRatio));
         PocketDeck.send({ type: 'mouse_scroll', dx: 0, dy: -clicks });
-        _scrollAcc = 0;
+        _scrollAcc -= clicks * (5 / CFG.scrollRatio); // keep remainder instead of hard-reset
       }
 
     } else if (count >= 3 && !_gestureTriggered) {
