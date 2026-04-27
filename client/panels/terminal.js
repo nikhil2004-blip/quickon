@@ -52,35 +52,81 @@
     }
   }
 
-  // ── Build the laptop keyboard overlay ───────────────────────────
+  // ── Terminal keyboard bottom sheet ──────────────────────────────
+  let _termKbdVisible = false;
+  let _termSheet      = null;
+
+  function _showTermKbd() {
+    if (!_termSheet) _buildKeyboardOverlay();
+    if (_termKbdVisible) return;
+    _termKbdVisible = true;
+    _termSheet.getBoundingClientRect();
+    _termSheet.classList.add('visible');
+    const $t = document.getElementById('term-kbd-toggle-btn');
+    if ($t) $t.style.display = 'none';
+    // Shrink terminal so it doesn't hide under the sheet
+    setTimeout(() => TerminalPanel.fit(), 300);
+  }
+
+  function _hideTermKbd() {
+    if (!_termKbdVisible) return;
+    _termKbdVisible = false;
+    _termSheet.classList.remove('visible');
+    const $t = document.getElementById('term-kbd-toggle-btn');
+    if ($t) $t.style.display = '';
+    setTimeout(() => TerminalPanel.fit(), 300);
+  }
+
   function _buildKeyboardOverlay() {
     const panel = document.getElementById('panel-terminal');
-    if (!panel) return;
+    if (!panel || _termSheet) return;
 
-    // Keyboard toggle button (floating)
-    const toggleBtn = document.createElement('button');
-    toggleBtn.id = 'term-kbd-toggle';
-    toggleBtn.className = 'term-kbd-toggle';
-    toggleBtn.innerHTML = '⌨';
-    toggleBtn.setAttribute('aria-label', 'Toggle terminal keyboard');
-    panel.appendChild(toggleBtn);
+    // ── Sheet container ──────────────────────────────────────────
+    const sheet = document.createElement('div');
+    sheet.id        = 'term-kbd-sheet';
+    sheet.className = 'kbd-sheet term-kbd-sheet';   // reuse touchpad sheet CSS
+    sheet.addEventListener('pointerdown', e => e.stopPropagation());
+    panel.appendChild(sheet);
+    _termSheet = sheet;
 
-    // Keyboard overlay
-    const kbdOverlay = document.createElement('div');
-    kbdOverlay.id = 'term-kbd';
-    kbdOverlay.className = 'term-kbd hidden';
-    kbdOverlay.innerHTML = _buildKbdHTML();
-    panel.appendChild(kbdOverlay);
-
-    toggleBtn.addEventListener('pointerdown', e => {
-      e.preventDefault();
-      kbdOverlay.classList.toggle('hidden');
-      toggleBtn.classList.toggle('active');
-      // Refit terminal after keyboard shown/hidden
-      setTimeout(() => TerminalPanel.fit(), 50);
+    // ── Handle bar: ▼ dismiss + pill ────────────────────────────
+    const handle = document.createElement('div');
+    handle.className = 'kbd-sheet-handle-row';
+    handle.innerHTML = `
+      <button class="kbd-sheet-dismiss" id="term-kbd-close" aria-label="Hide keyboard">▼</button>
+      <div class="kbd-sheet-handle"></div>
+      <span style="color:rgba(255,255,255,.35);font-size:11px;padding-right:4px">Terminal</span>
+    `;
+    sheet.appendChild(handle);
+    handle.querySelector('#term-kbd-close').addEventListener('pointerdown', e => {
+      e.preventDefault(); e.stopPropagation();
+      _hideTermKbd();
     });
 
-    _wireKbdEvents(kbdOverlay);
+    // ── Keyboard rows ────────────────────────────────────────────
+    sheet.insertAdjacentHTML('beforeend', _buildKbdHTML());
+    _wireKbdEvents(sheet);
+
+    // ── Swipe-down-to-dismiss ─────────────────────────────────
+    let _sy = null;
+    handle.addEventListener('pointerdown', e => { _sy = e.clientY; });
+    handle.addEventListener('pointermove', e => {
+      if (_sy !== null && e.clientY - _sy > 48) { _hideTermKbd(); _sy = null; }
+    });
+    handle.addEventListener('pointerup',     () => { _sy = null; });
+    handle.addEventListener('pointercancel', () => { _sy = null; });
+
+    // ── Persistent ▲ toggle button ───────────────────────────────
+    const $toggle = document.createElement('button');
+    $toggle.id        = 'term-kbd-toggle-btn';
+    $toggle.className = 'kbd-toggle-btn';
+    $toggle.innerHTML = '▲';
+    $toggle.setAttribute('aria-label', 'Show keyboard');
+    $toggle.addEventListener('pointerdown', e => {
+      e.preventDefault(); e.stopPropagation();
+      _showTermKbd();
+    });
+    panel.appendChild($toggle);
   }
 
   function _buildKbdHTML() {

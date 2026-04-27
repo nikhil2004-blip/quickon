@@ -954,3 +954,103 @@ input[type="text"]:focus {
   background: rgba(99,102,241,.35);
   color: #fff;
 }
+
+/* ── Terminal keyboard sheet overrides ──────────────────────────── */
+/* The toggle sits at bottom-right; terminal has no slider row */
+#panel-terminal .kbd-toggle-btn {
+  bottom: 14px;
+}
+
+/* Terminal key rows — slightly smaller than touchpad for more rows */
+.term-kbd-sheet .tkey,
+.term-kbd-sheet .kbs-key {
+  height: 44px;
+  font-size: 13px;
+}
+
+/* F-key row: scrollable horizontally */
+.tkbd-frow {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding: 0 2px 2px;
+  scrollbar-width: none;
+}
+.tkbd-frow::-webkit-scrollbar { display: none; }
+
+/* Terminal key row */
+.tkbd-row {
+  display: flex;
+  gap: 4px;
+  padding: 0 2px;
+}
+
+/* Terminal key base — reuse kbs-key look */
+.tkey {
+  background: #2c2c3e;
+  border: 1px solid rgba(255,255,255,.09);
+  border-bottom: 2px solid rgba(0,0,0,.45);
+  border-radius: 8px;
+  color: #e8e8f2;
+  cursor: pointer;
+  font-family: 'Fira Code', monospace, sans-serif;
+  font-size: 13px;
+  height: 44px;
+  min-width: 32px;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  touch-action: manipulation;
+  user-select: none;
+  will-change: transform;
+  -webkit-tap-highlight-color: transparent;
+  transition: background .06s, transform .04s;
+}
+.tkey:active {
+  background: var(--accent);
+  border-color: var(--accent);
+  transform: scale(.88) translateY(1px);
+  border-bottom-width: 1px;
+}
+
+/* Fn keys — smaller */
+.tkey-fn {
+  font-size: 11px;
+  min-width: 36px;
+  flex: 0 0 auto;
+  color: #a0a0cc;
+}
+
+/* Ctrl/nav keys */
+.tkey-ctrl { background: #1e1e2e; color: #c792ea; font-size: 12px; }
+.tkey-nav  { background: #1e1e2e; color: #89ddff; }
+
+/* Ctrl latch */
+.tkey-ctrl-latch {
+  background: #1e1e2e;
+  color: #f8f8a2;
+  min-width: 48px;
+  flex: 0 0 auto;
+}
+.tkey-ctrl-latch.active {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+/* Wide keys */
+.tkey-wide  { flex: 0 0 auto; min-width: 68px; background: #1e1e2e; }
+.tkey-enter { background: #1a2e1a; color: #57e389; }
+.tkey-space { flex: 2; color: var(--text-muted); }
+
+/* Arrow keys */
+.tkey-arrow {
+  flex: 0 0 44px;
+  font-size: 18px;
+  background: #1e1e2e;
+  color: #8888cc;
+}
+
+/* Arrow row */
+.tkbd-arrow-row { gap: 3px; }
