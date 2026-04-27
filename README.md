@@ -4,7 +4,7 @@
   <h1>📱 PocketDeck</h1>
   <p><b>A blazing-fast, background-first mobile companion for your PC.</b></p>
 
-  [![Download PocketDeck.exe](https://img.shields.io/badge/Download-PocketDeck.exe-2ea44f?style=for-the-badge&logo=windows)](dist/PocketDeck.exe)
+  [![Download PocketDeck.exe](https://img.shields.io/badge/Download-PocketDeck.exe-2ea44f?style=for-the-badge&logo=windows)](https://raw.githubusercontent.com/nikhil2004-blip/quickon/master/dist/PocketDeck.exe)
   [![GitHub Release](https://img.shields.io/github/v/release/nikhil2004-blip/quickon?color=blue&style=for-the-badge)](https://github.com/nikhil2004-blip/quickon/releases)
 </div>
 
@@ -30,10 +30,17 @@ PocketDeck transforms your smartphone into a premium control surface for your co
 PocketDeck is designed to be invisible when you don't need it, and instant when you do. 
 
 ### 1. Download & Run
-Download the latest executable directly from the repository:
-[**Download PocketDeck.exe**](dist/PocketDeck.exe)
+Download the latest executable directly to your machine (no redirects, starts immediately):
 
-Double-click the downloaded file. **PocketDeck runs completely in the background**—you won't see a visible window.
+<div align="center">
+  <br />
+  <a href="https://raw.githubusercontent.com/nikhil2004-blip/quickon/master/dist/PocketDeck.exe">
+    <img src="https://img.shields.io/badge/⬇️_Direct_Download-PocketDeck.exe-2ea44f?style=for-the-badge&logo=windows" alt="Download PocketDeck.exe" />
+  </a>
+  <br /><br />
+</div>
+
+Double-click the downloaded file. **PocketDeck runs completely in the background**—you won't see a visible window popping up.
 
 ### 2. Connect Your Phone
 To connect your phone, you need to open the QR code from the **Hidden Icon Tray** in your Windows taskbar.
@@ -43,7 +50,7 @@ To connect your phone, you need to open the QR code from the **Hidden Icon Tray*
 3. Right-click the icon and select **"Show QR Code"**.
 
 <p align="center">
-  <img src="assets/tray_menu.png" alt="System Tray Menu" width="450" style="border-radius: 8px; border: 1px solid #444; margin-top: 10px;" />
+  <img src="assets/tray_menu.png" alt="System Tray Menu" width="300" style="border-radius: 8px; border: 1px solid #444; margin-top: 10px;" />
   <br />
   <em>Right-click the PocketDeck icon in the hidden tray to reveal the menu.</em>
 </p>
@@ -52,6 +59,27 @@ To connect your phone, you need to open the QR code from the **Hidden Icon Tray*
 5. The PocketDeck Web App will open in your mobile browser. **You are now connected!**
 
 *(Pro Tip: Use "Add to Home Screen" on your mobile browser for a full-screen, native-app experience!)*
+
+---
+
+## ⚙️ Customizing Your Deck
+
+You can easily add your own buttons to the PocketDeck by modifying the `server/widgets.yaml` file. 
+
+```yaml
+widgets:
+  - id: start-dev-server
+    label: "Start Dev Server"
+    icon: "🚀"
+    actions:
+      - type: terminal
+        command: "cd ~/projects/myapp && npm run dev\r"
+      - type: launch
+        app: "code"
+        args: ["."]
+```
+
+Actions support running terminal commands, launching applications, sending keystrokes, and adding delays.
 
 ---
 
@@ -77,27 +105,6 @@ python server/server.py
 # 5. Build the executable (creates dist/PocketDeck.exe)
 build.bat
 ```
-
----
-
-## ⚙️ Customizing Your Deck
-
-You can easily add your own buttons to the PocketDeck by modifying the `server/widgets.yaml` file. 
-
-```yaml
-widgets:
-  - id: start-dev-server
-    label: "Start Dev Server"
-    icon: "🚀"
-    actions:
-      - type: terminal
-        command: "cd ~/projects/myapp && npm run dev\r"
-      - type: launch
-        app: "code"
-        args: ["."]
-```
-
-Actions support running terminal commands, launching applications, sending keystrokes, and adding delays.
 
 ---
 
