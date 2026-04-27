@@ -31,6 +31,8 @@ from utils.network import get_local_ips, get_os_name
 from utils.qr import print_startup_banner
 from handlers.mouse import handle_mouse_move, handle_mouse_click, handle_mouse_scroll
 from handlers.keyboard import handle_key_tap, handle_key_down, handle_key_up, handle_text_type
+from handlers.widgets import load_widgets, get_widget_list_payload, run_widget
+from handlers.media import handle_media
 
 # ── configuration ─────────────────────────────────────────────
 WS_PORT   = 8765
@@ -107,8 +109,8 @@ async def handle_connection(ws: WebSocketServerProtocol) -> None:
         "hostname": socket.gethostname(),
     }))
 
-    # Send empty widget_list (Phase 5 will populate)
-    await ws.send(json.dumps({"type": "widget_list", "widgets": []}))
+    # Send widget_list (loaded from widgets.yaml)
+    await ws.send(json.dumps({"type": "widget_list", "widgets": get_widget_list_payload()}))
 
     # ── Phase 3: Start Terminal ────────────────────────────────
     from handlers.terminal import TerminalSession
@@ -175,11 +177,11 @@ async def _dispatch(ws: WebSocketServerProtocol, raw: str) -> None:
 
     # ── Widgets (Phase 5) ──────────────────────────────────────
     elif t == "widget_run":
-        logger.debug(f"Widget run (Phase 5 not yet implemented): {msg.get('id')}")
+        asyncio.create_task(run_widget(msg.get("id", ""), active_terminals, ws))
 
     # ── Media (Phase 6) ───────────────────────────────────────
     elif t == "media":
-        logger.debug(f"Media action (Phase 6 not yet implemented): {msg.get('action')}")
+        handle_media(msg.get("action", ""))
 
     else:
         logger.debug(f"Unknown message type: {t!r}")
@@ -222,6 +224,9 @@ async def _serve_http() -> None:
 async def main() -> None:
     global TOKEN
     TOKEN = "123456"
+
+    # Load widgets.yaml once on startup
+    load_widgets()
 
     ips = get_local_ips()
     if not ips:

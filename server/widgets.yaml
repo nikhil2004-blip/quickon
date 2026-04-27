@@ -1,0 +1,82 @@
+widgets:
+
+  - id: open-terminal
+    label: "New Terminal"
+    icon: "💻"
+    color: "#2563eb"
+    actions:
+      - type: keypress
+        key: "ctrl+alt+t"
+
+  - id: start-dev-server
+    label: "Dev Server"
+    icon: "🚀"
+    color: "#059669"
+    actions:
+      - type: terminal
+        command: "npm run dev\r"
+
+  - id: git-status
+    label: "Git Status"
+    icon: "🔍"
+    color: "#7c3aed"
+    actions:
+      - type: terminal
+        command: "git status\r"
+
+  - id: git-log
+    label: "Git Log"
+    icon: "📋"
+    color: "#0891b2"
+    actions:
+      - type: terminal
+        command: "git log --oneline -10\r"
+
+  - id: kill-port-3000
+    label: "Kill :3000"
+    icon: "🔴"
+    color: "#dc2626"
+    actions:
+      - type: terminal
+        command: "npx kill-port 3000\r"
+
+  - id: open-vscode
+    label: "VS Code"
+    icon: "📝"
+    color: "#1d4ed8"
+    actions:
+      - type: launch
+        app: "code"
+        args: ["."]
+
+  - id: lock-screen
+    label: "Lock PC"
+    icon: "🔒"
+    color: "#64748b"
+    actions:
+      - type: keypress
+        key: "win+l"
+
+  - id: screenshot
+    label: "Screenshot"
+    icon: "📸"
+    color: "#b45309"
+    actions:
+      - type: keypress
+        key: "win+shift+s"
+
+  - id: task-manager
+    label: "Task Mgr"
+    icon: "📊"
+    color: "#374151"
+    actions:
+      - type: keypress
+        key: "ctrl+shift+esc"
+
+  - id: show-desktop
+    label: "Desktop"
+    icon: "🖥️"
+    color: "#0f766e"
+    actions:
+      - type: keypress
+        key: "win+d"
