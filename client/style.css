@@ -748,7 +748,7 @@ input[type="text"]:focus {
    the native Android system keyboard.
 ═══════════════════════════════════════════════════════════════ */
 
-/* The sheet itself — positioned absolute inside panel-touchpad */
+/* The sheet itself — positioned absolute inside panel-touchpad / panel-terminal */
 .kbd-sheet {
   position: absolute;
   bottom: 0; left: 0; right: 0;
@@ -759,21 +759,30 @@ input[type="text"]:focus {
   border-top: 1px solid rgba(255,255,255,.1);
   border-radius: 16px 16px 0 0;
 
-  padding: 0 4px 8px;
+  /* Safe-area padding: env() returns the gesture nav-bar height once
+     viewport-fit=cover is active in the meta tag. Fallback 28px handles
+     browsers that don't support it (covers most Android nav bars). */
+  padding: 4px 0 calc(28px + env(safe-area-inset-bottom, 28px));
   display: flex;
   flex-direction: column;
   gap: 3px;
+
+  /* Allow scrolling if content overflows on tiny screens */
+  overflow-y: auto;
+  /* NOTE: do NOT use contain:layout style — it clips overflow and hides last row */
 
   /* Slide UP animation — same easing as iOS keyboard */
   transform: translateY(100%);
   transition: transform 0.28s cubic-bezier(0.32, 0.72, 0, 1);
   will-change: transform;      /* pre-paint on GPU so slide-up is silky */
 
-  /* Contain key-press repaints inside the sheet — never affects touchpad area */
-  contain: layout style;
-
   /* Prevent pointer events reaching the touchpad while sheet is open */
   touch-action: none;
+
+  /* CRITICAL — prevent Android from treating ANY element inside as
+     an editable field. Buttons with inputmode=none still need this. */
+  -webkit-user-select: none;
+  user-select: none;
 }
 .kbd-sheet.visible {
   transform: translateY(0);
@@ -783,7 +792,7 @@ input[type="text"]:focus {
 .kbd-sheet-handle-row {
   display: flex;
   align-items: center;
-  padding: 8px 12px 4px;
+  padding: 4px 12px 2px; /* tighter handle row */
   gap: 10px;
   position: relative;
 }
@@ -854,9 +863,9 @@ input[type="text"]:focus {
 /* Key rows inside the sheet */
 .kbs-row {
   display: flex;
-  gap: 4px;
+  gap: 1px;                      /* ultra-tight gap to fit rows on 360px screens */
   justify-content: center;
-  padding: 0 2px;
+  padding: 0;                    /* removed padding to save space */
 }
 
 /* Individual sheet key — bigger for comfortable thumb typing */
@@ -870,8 +879,8 @@ input[type="text"]:focus {
   font-family: var(--font-sans);
   font-size: 16px;
   font-weight: 500;
-  min-width: 30px;
-  height: 52px;                  /* was 42 — bigger for thumb reach */
+  min-width: 21px;                  /* further reduced from 24 to ensure no clipping on right (Backspace) */
+  height: 42px;                  /* shorter to ensure vertical fit */
   padding: 0 4px;
   flex: 1;
   display: flex;
@@ -881,7 +890,11 @@ input[type="text"]:focus {
   -webkit-tap-highlight-color: transparent;
   touch-action: manipulation;
   user-select: none;
+  -webkit-user-select: none;
   will-change: transform;        /* pre-allocate GPU layer — no repaint jank */
+  /* Prevent Chrome from treating buttons as text inputs */
+  -webkit-appearance: none;
+  outline: none;
 }
 .kbs-key:active {
   background: var(--accent);
@@ -909,7 +922,7 @@ input[type="text"]:focus {
 /* Wide keys: backspace, enter */
 .kbs-wide {
   flex: 0 0 auto;
-  min-width: 64px;
+  min-width: 48px;                  /* further reduced from 52 to save space for standard keys */
   background: #1e1e2e;
   font-size: 15px;
 }
@@ -919,7 +932,7 @@ input[type="text"]:focus {
   flex: 3;
   font-size: 14px;
   color: var(--text-muted);
-  height: 50px;
+  height: 42px;   /* match letter-key height so last row never clips */
 }
 
 /* Arrow keys */
@@ -928,7 +941,7 @@ input[type="text"]:focus {
   font-size: 20px;
   background: #1e1e2e;
   color: #8888cc;
-  height: 50px;
+  height: 42px;   /* match letter-key height */
 }
 
 /* ▲ Persistent keyboard toggle button — floats above the sensitivity slider */
@@ -1042,7 +1055,7 @@ input[type="text"]:focus {
 /* Wide keys */
 .tkey-wide  { flex: 0 0 auto; min-width: 68px; background: #1e1e2e; }
 .tkey-enter { background: #1a2e1a; color: #57e389; }
-.tkey-space { flex: 2; color: var(--text-muted); }
+.tkey-space { flex: 2; color: var(--text-muted); height: 42px; }   /* match height */
 
 /* Arrow keys */
 .tkey-arrow {
@@ -1050,7 +1063,45 @@ input[type="text"]:focus {
   font-size: 18px;
   background: #1e1e2e;
   color: #8888cc;
+  height: 42px;   /* match letter-key height */
 }
 
 /* Arrow row */
 .tkbd-arrow-row { gap: 3px; }
+
+/* ── Drag-Lock button ───────────────────────────────────────────────────── */
+/* Floating toggle at bottom-right of the touchpad panel.
+   When active the left mouse button is held on the PC for drag-select. */
+.drag-lock-btn {
+  position: absolute;
+  bottom: calc(env(safe-area-inset-bottom, 0px) + 64px); /* above the slider row */
+  right: 14px;
+  z-index: 20;
+  background: var(--bg-raised);
+  color: var(--text-secondary);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  touch-action: none;
+  user-select: none;
+  transition: background .2s, border-color .2s, box-shadow .2s, color .2s;
+  box-shadow: var(--shadow-sm);
+}
+.drag-lock-btn:active {
+  transform: scale(.96);
+}
+.drag-lock-btn.active {
+  background: #7f1d1d;
+  border-color: #ef4444;
+  color: #fca5a5;
+  box-shadow: 0 0 14px rgba(239,68,68,.35);
+  animation: drag-pulse 1.5s ease-in-out infinite;
+}
+@keyframes drag-pulse {
+  0%, 100% { box-shadow: 0 0 10px rgba(239,68,68,.3); }
+  50%       { box-shadow: 0 0 22px rgba(239,68,68,.6); }
+}

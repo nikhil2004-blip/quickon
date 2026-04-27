@@ -1,82 +1,110 @@
 widgets:
 
+  # ── Dev Tools ─────────────────────────────────────────────────────────────
   - id: open-terminal
     label: "New Terminal"
     icon: "💻"
-    color: "#2563eb"
+    color: "#0ea5e9"
     actions:
-      - type: keypress
-        key: "ctrl+alt+t"
-
-  - id: start-dev-server
-    label: "Dev Server"
-    icon: "🚀"
-    color: "#059669"
-    actions:
-      - type: terminal
-        command: "npm run dev\r"
-
-  - id: git-status
-    label: "Git Status"
-    icon: "🔍"
-    color: "#7c3aed"
-    actions:
-      - type: terminal
-        command: "git status\r"
-
-  - id: git-log
-    label: "Git Log"
-    icon: "📋"
-    color: "#0891b2"
-    actions:
-      - type: terminal
-        command: "git log --oneline -10\r"
-
-  - id: kill-port-3000
-    label: "Kill :3000"
-    icon: "🔴"
-    color: "#dc2626"
-    actions:
-      - type: terminal
-        command: "npx kill-port 3000\r"
+      - type: shell
+        command: "start powershell"
 
   - id: open-vscode
     label: "VS Code"
     icon: "📝"
-    color: "#1d4ed8"
+    color: "#0066b8"
     actions:
       - type: launch
         app: "code"
         args: ["."]
 
-  - id: lock-screen
+  - id: start-dev-environment
+    label: "Dev Server"
+    icon: "🚀"
+    color: "#8b5cf6"
+    actions:
+      - type: browser
+        url: "https://chatgpt.com"
+      - type: browser
+        url: "https://claude.ai"
+      - type: delay
+        ms: 800
+      - type: launch
+        app: "code"
+        args: ["."]
+      - type: shell
+        command: "start powershell"
+
+  # ── System ────────────────────────────────────────────────────────────────
+  - id: lock-pc
     label: "Lock PC"
     icon: "🔒"
-    color: "#64748b"
+    color: "#ef4444"
     actions:
-      - type: keypress
-        key: "win+l"
+      - type: lock
 
-  - id: screenshot
-    label: "Screenshot"
-    icon: "📸"
-    color: "#b45309"
+  - id: show-desktop
+    label: "Show Desktop"
+    icon: "🖥️"
+    color: "#10b981"
     actions:
       - type: keypress
-        key: "win+shift+s"
+        key: "win+d"
 
   - id: task-manager
     label: "Task Mgr"
     icon: "📊"
-    color: "#374151"
+    color: "#f59e0b"
     actions:
       - type: keypress
         key: "ctrl+shift+esc"
 
-  - id: show-desktop
-    label: "Desktop"
-    icon: "🖥️"
-    color: "#0f766e"
+  # ── Windows ───────────────────────────────────────────────────────────────
+  - id: open-screenshot
+    label: "Screenshot"
+    icon: "📷"
+    color: "#6366f1"
     actions:
       - type: keypress
-        key: "win+d"
+        key: "win+shift+s"
+
+  - id: volume-up
+    label: "Vol +"
+    icon: "🔊"
+    color: "#22d3ee"
+    actions:
+      - type: keypress
+        key: "volume_up"
+
+  - id: volume-down
+    label: "Vol -"
+    icon: "🔉"
+    color: "#22d3ee"
+    actions:
+      - type: keypress
+        key: "volume_down"
+
+  - id: mute
+    label: "Mute"
+    icon: "🔇"
+    color: "#64748b"
+    actions:
+      - type: keypress
+        key: "volume_mute"
+
+  # ── Browser ───────────────────────────────────────────────────────────────
+  - id: open-chatgpt
+    label: "ChatGPT"
+    icon: "🤖"
+    color: "#10a37f"
+    actions:
+      - type: browser
+        url: "https://chatgpt.com"
+
+  - id: open-claude
+    label: "Claude"
+    icon: "✨"
+    color: "#d97706"
+    actions:
+      - type: browser
+        url: "https://claude.ai"

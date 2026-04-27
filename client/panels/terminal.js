@@ -1,10 +1,9 @@
 /**
  * terminal.js — Phase 3/4
- * xterm.js integration + laptop-style keyboard overlay for the terminal.
+ * xterm.js integration.
  *
- * The terminal keyboard overlay sends raw control bytes directly as
- * terminal_in messages (bypassing the global keyboard panel).
- * It's purpose-built for shell use: Tab autocomplete, Ctrl+C, arrows, etc.
+ * The keyboard sheet reuses the exact same QWERTY layout from TouchpadPanel.buildKeyboardDOM.
+ * Key presses are routed as raw ANSI bytes via terminal_in (not as key_tap).
  */
 'use strict';
 
@@ -13,34 +12,32 @@
   let term       = null;
   let fitAddon   = null;
   let _isInited  = false;
-  let _ctrlLatch = false;   // sticky Ctrl for terminal keyboard
-  let _altLatch  = false;   // sticky Alt for terminal keyboard
 
-  // ── Raw byte sequences ───────────────────────────────────────────
+  // ── Raw byte sequences ─────────────────────────────────────────────────
   const TERM_KEYS = {
-    'tab':    '\x09',
-    'ctrl+c': '\x03',
-    'ctrl+d': '\x04',
-    'ctrl+z': '\x1a',
-    'ctrl+l': '\x0c',
-    'ctrl+a': '\x01',
-    'ctrl+e': '\x05',
-    'ctrl+u': '\x15',
-    'ctrl+k': '\x0b',
-    'ctrl+r': '\x12',
-    'ctrl+w': '\x17',
-    'esc':    '\x1b',
-    'up':     '\x1b[A',
-    'down':   '\x1b[B',
-    'right':  '\x1b[C',
-    'left':   '\x1b[D',
-    'home':   '\x1b[H',
-    'end':    '\x1b[F',
-    'pgup':   '\x1b[5~',
-    'pgdn':   '\x1b[6~',
-    'delete': '\x1b[3~',
+    'tab':       '\x09',
+    'ctrl+c':    '\x03',
+    'ctrl+d':    '\x04',
+    'ctrl+z':    '\x1a',
+    'ctrl+l':    '\x0c',
+    'ctrl+a':    '\x01',
+    'ctrl+e':    '\x05',
+    'ctrl+u':    '\x15',
+    'ctrl+k':    '\x0b',
+    'ctrl+r':    '\x12',
+    'ctrl+w':    '\x17',
+    'esc':       '\x1b',
+    'up':        '\x1b[A',
+    'down':      '\x1b[B',
+    'right':     '\x1b[C',
+    'left':      '\x1b[D',
+    'home':      '\x1b[H',
+    'end':       '\x1b[F',
+    'pgup':      '\x1b[5~',
+    'pgdn':      '\x1b[6~',
+    'delete':    '\x1b[3~',
     'backspace': '\x7f',
-    'enter':  '\r',
+    'enter':     '\r',
     'f1':'\x1bOP','f2':'\x1bOQ','f3':'\x1bOR','f4':'\x1bOS',
     'f5':'\x1b[15~','f6':'\x1b[17~','f7':'\x1b[18~','f8':'\x1b[19~',
     'f9':'\x1b[20~','f10':'\x1b[21~','f11':'\x1b[23~','f12':'\x1b[24~',
@@ -52,19 +49,60 @@
     }
   }
 
-  // ── Terminal keyboard bottom sheet ──────────────────────────────
+  // ── Terminal keyboard bottom-sheet ─────────────────────────────────────
   let _termKbdVisible = false;
   let _termSheet      = null;
+  // Modifier state (shared with _buildKeyboardDOM)
+  const _termMods = { ctrl: false, alt: false, shift: false, win: false };
+
+  /** Convert touchpad key-name + current mods → terminal raw bytes */
+  function _termSendKey(key, mods) {
+    // Build ctrl+key combo string for lookup
+    let lookup = key;
+    if (mods.ctrl && !key.startsWith('ctrl+')) lookup = 'ctrl+' + key;
+
+    // Release all sticky mods after the keypress
+    Object.keys(_termMods).forEach(m => {
+      if (_termMods[m]) {
+        _termMods[m] = false;
+        if (_termSheet) {
+          const btn = _termSheet.querySelector(`[data-mod="${m}"]`);
+          if (btn) btn.classList.remove('active');
+        }
+      }
+    });
+
+    // 1. Direct ANSI lookup (covers arrows, ctrl+letter shortcuts, Esc, Enter, etc.)
+    if (TERM_KEYS[lookup] !== undefined) { _sendRaw(TERM_KEYS[lookup]); return; }
+    if (TERM_KEYS[key]    !== undefined) { _sendRaw(TERM_KEYS[key]);    return; }
+
+    // 2. Ctrl + any letter → ASCII control character
+    if (mods.ctrl && key.length === 1 && /[a-zA-Z]/.test(key)) {
+      _sendRaw(String.fromCharCode(key.toUpperCase().charCodeAt(0) & 0x1f));
+      return;
+    }
+
+    // 3. Printable character (shift capitalises)
+    if (key === 'space') { _sendRaw(' ');  return; }
+    if (key.length === 1) {
+      _sendRaw(mods.shift ? key.toUpperCase() : key.toLowerCase());
+      return;
+    }
+  }
+
+  function _termToggleMod(mod, btn) {
+    _termMods[mod] = !_termMods[mod];
+    if (btn) btn.classList.toggle('active', _termMods[mod]);
+  }
 
   function _showTermKbd() {
     if (!_termSheet) _buildKeyboardOverlay();
     if (_termKbdVisible) return;
     _termKbdVisible = true;
-    _termSheet.getBoundingClientRect();
+    _termSheet.getBoundingClientRect();   // force reflow → transition fires
     _termSheet.classList.add('visible');
     const $t = document.getElementById('term-kbd-toggle-btn');
     if ($t) $t.style.display = 'none';
-    // Shrink terminal so it doesn't hide under the sheet
     setTimeout(() => TerminalPanel.fit(), 300);
   }
 
@@ -81,42 +119,28 @@
     const panel = document.getElementById('panel-terminal');
     if (!panel || _termSheet) return;
 
-    // ── Sheet container ──────────────────────────────────────────
+    // Sheet container — reuses all .kbd-sheet CSS from style.css
     const sheet = document.createElement('div');
     sheet.id        = 'term-kbd-sheet';
-    sheet.className = 'kbd-sheet term-kbd-sheet';   // reuse touchpad sheet CSS
+    sheet.className = 'kbd-sheet';     // identical class → identical styling
     sheet.addEventListener('pointerdown', e => e.stopPropagation());
     panel.appendChild(sheet);
     _termSheet = sheet;
 
-    // ── Handle bar: ▼ dismiss + pill ────────────────────────────
-    const handle = document.createElement('div');
-    handle.className = 'kbd-sheet-handle-row';
-    handle.innerHTML = `
-      <button class="kbd-sheet-dismiss" id="term-kbd-close" aria-label="Hide keyboard">▼</button>
-      <div class="kbd-sheet-handle"></div>
-      <span style="color:rgba(255,255,255,.35);font-size:11px;padding-right:4px">Terminal</span>
-    `;
-    sheet.appendChild(handle);
-    handle.querySelector('#term-kbd-close').addEventListener('pointerdown', e => {
-      e.preventDefault(); e.stopPropagation();
-      _hideTermKbd();
-    });
+    // Build exact same QWERTY keyboard DOM as the touchpad
+    // onSend = null → no Send button; every key goes to PTY immediately
+    if (window.TouchpadPanel && window.TouchpadPanel.buildKeyboardDOM) {
+      window.TouchpadPanel.buildKeyboardDOM(
+        sheet,
+        /* onKey */    (key, mods) => _termSendKey(key, mods),
+        /* onDismiss */_hideTermKbd,
+        /* onSend */   null,
+        _termMods,
+        /* toggleMod */(mod, btn)  => _termToggleMod(mod, btn),
+      );
+    }
 
-    // ── Keyboard rows ────────────────────────────────────────────
-    sheet.insertAdjacentHTML('beforeend', _buildKbdHTML());
-    _wireKbdEvents(sheet);
-
-    // ── Swipe-down-to-dismiss ─────────────────────────────────
-    let _sy = null;
-    handle.addEventListener('pointerdown', e => { _sy = e.clientY; });
-    handle.addEventListener('pointermove', e => {
-      if (_sy !== null && e.clientY - _sy > 48) { _hideTermKbd(); _sy = null; }
-    });
-    handle.addEventListener('pointerup',     () => { _sy = null; });
-    handle.addEventListener('pointercancel', () => { _sy = null; });
-
-    // ── Persistent ▲ toggle button ───────────────────────────────
+    // ▲ toggle button (sits below the sheet when it's hidden)
     const $toggle = document.createElement('button');
     $toggle.id        = 'term-kbd-toggle-btn';
     $toggle.className = 'kbd-toggle-btn';
@@ -129,116 +153,7 @@
     panel.appendChild($toggle);
   }
 
-  function _buildKbdHTML() {
-    return `
-      <!-- Row 0: F-keys scrollable -->
-      <div class="tkbd-frow">
-        <button class="tkey tkey-fn" data-key="esc">Esc</button>
-        <button class="tkey tkey-fn" data-key="f1">F1</button>
-        <button class="tkey tkey-fn" data-key="f2">F2</button>
-        <button class="tkey tkey-fn" data-key="f3">F3</button>
-        <button class="tkey tkey-fn" data-key="f4">F4</button>
-        <button class="tkey tkey-fn" data-key="f5">F5</button>
-        <button class="tkey tkey-fn" data-key="f6">F6</button>
-        <button class="tkey tkey-fn" data-key="f7">F7</button>
-        <button class="tkey tkey-fn" data-key="f8">F8</button>
-        <button class="tkey tkey-fn" data-key="f9">F9</button>
-        <button class="tkey tkey-fn" data-key="f10">F10</button>
-        <button class="tkey tkey-fn" data-key="f11">F11</button>
-        <button class="tkey tkey-fn" data-key="f12">F12</button>
-      </div>
-
-      <!-- Row 1: main number/nav row -->
-      <div class="tkbd-row">
-        <button class="tkey tkey-nav" data-key="tab">Tab⇥</button>
-        <button class="tkey tkey-nav" data-key="home">Home</button>
-        <button class="tkey tkey-nav" data-key="end">End</button>
-        <button class="tkey tkey-nav" data-key="pgup">PgUp</button>
-        <button class="tkey tkey-nav" data-key="pgdn">PgDn</button>
-        <button class="tkey tkey-nav" data-key="delete">Del</button>
-        <button class="tkey tkey-wide" data-key="backspace">⌫ Bksp</button>
-      </div>
-
-      <!-- Row 2: control shortcuts -->
-      <div class="tkbd-row">
-        <button class="tkey tkey-ctrl-latch" id="term-ctrl-latch">Ctrl</button>
-        <button class="tkey tkey-ctrl" data-key="ctrl+c">^C</button>
-        <button class="tkey tkey-ctrl" data-key="ctrl+d">^D</button>
-        <button class="tkey tkey-ctrl" data-key="ctrl+z">^Z</button>
-        <button class="tkey tkey-ctrl" data-key="ctrl+l">^L</button>
-        <button class="tkey tkey-ctrl" data-key="ctrl+r">^R</button>
-        <button class="tkey tkey-ctrl" data-key="ctrl+a">^A</button>
-        <button class="tkey tkey-ctrl" data-key="ctrl+e">^E</button>
-        <button class="tkey tkey-ctrl" data-key="ctrl+u">^U</button>
-        <button class="tkey tkey-ctrl" data-key="ctrl+k">^K</button>
-        <button class="tkey tkey-ctrl" data-key="ctrl+w">^W</button>
-      </div>
-
-      <!-- Row 3: arrows + enter -->
-      <div class="tkbd-row tkbd-arrow-row">
-        <button class="tkey tkey-space" data-raw=" "> Space</button>
-        <button class="tkey tkey-arrow" data-key="left">◀</button>
-        <button class="tkey tkey-arrow" data-key="up">▲</button>
-        <button class="tkey tkey-arrow" data-key="down">▼</button>
-        <button class="tkey tkey-arrow" data-key="right">▶</button>
-        <button class="tkey tkey-wide tkey-enter" data-key="enter">Enter ↵</button>
-      </div>
-    `;
-  }
-
-  function _wireKbdEvents(kbdEl) {
-    // Sticky Ctrl latch button
-    const ctrlLatch = kbdEl.querySelector('#term-ctrl-latch');
-    if (ctrlLatch) {
-      ctrlLatch.addEventListener('pointerdown', e => {
-        e.preventDefault();
-        _ctrlLatch = !_ctrlLatch;
-        ctrlLatch.classList.toggle('active', _ctrlLatch);
-      });
-    }
-
-    // All other keys
-    kbdEl.querySelectorAll('[data-key]').forEach(btn => {
-      btn.addEventListener('pointerdown', e => {
-        e.preventDefault();
-        let key = btn.dataset.key;
-
-        // If Ctrl is latched and key is a letter, compose
-        if (_ctrlLatch && key.length === 1) {
-          const code = key.charCodeAt(0) & 0x1f;
-          _sendRaw(String.fromCharCode(code));
-          _ctrlLatch = false;
-          if (ctrlLatch) ctrlLatch.classList.remove('active');
-          return;
-        }
-
-        // If Ctrl is latched and key is a named key, build ctrl+ combo
-        if (_ctrlLatch && !key.startsWith('ctrl+')) {
-          key = 'ctrl+' + key;
-          _ctrlLatch = false;
-          if (ctrlLatch) ctrlLatch.classList.remove('active');
-        }
-
-        const bytes = TERM_KEYS[key];
-        if (bytes !== undefined) {
-          _sendRaw(bytes);
-        } else {
-          // Fallback: send literal character
-          _sendRaw(key);
-        }
-      });
-    });
-
-    // Raw data keys (space etc.)
-    kbdEl.querySelectorAll('[data-raw]').forEach(btn => {
-      btn.addEventListener('pointerdown', e => {
-        e.preventDefault();
-        _sendRaw(btn.dataset.raw);
-      });
-    });
-  }
-
-  // ── xterm.js init ────────────────────────────────────────────────
+  // ── xterm.js init ──────────────────────────────────────────────────────
   function initTerminal() {
     if (_isInited) return;
     const container = document.getElementById('terminal-container');
@@ -283,13 +198,35 @@
       }
     });
 
-    // Build keyboard overlay after terminal is ready
-    _buildKeyboardOverlay();
+    // ── Block Android IME triggered by xterm's internal textarea ───────────
+    // xterm.js creates a hidden <textarea> for keyboard input. On Android,
+    // any time that textarea receives focus, the system keyboard appears.
+    // We: (a) set inputmode=none on it, (b) intercept any focusin on the
+    // container and immediately re-blur without preventing xterm's internal use.
+    setTimeout(() => {
+      const xtermTextarea = container.querySelector('textarea');
+      if (xtermTextarea) {
+        xtermTextarea.setAttribute('inputmode', 'none');
+        xtermTextarea.setAttribute('tabindex', '-1');
+        // Blur on any focus so the Android keyboard never opens
+        xtermTextarea.addEventListener('focus', () => xtermTextarea.blur());
+      }
+      // Also cover any future textareas xterm might create
+      container.addEventListener('focusin', e => {
+        if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') {
+          e.target.setAttribute('inputmode', 'none');
+          e.target.blur();
+        }
+      }, true);
+    }, 100);
+
+    // Build keyboard overlay (deferred so TouchpadPanel is guaranteed loaded)
+    setTimeout(_buildKeyboardOverlay, 0);
 
     _isInited = true;
   }
 
-  // ── Public API ───────────────────────────────────────────────────
+  // ── Public API ─────────────────────────────────────────────────────────
   window.TerminalPanel = {
     write(data) {
       if (!_isInited) initTerminal();
@@ -309,6 +246,16 @@
           }
         }, 10);
       }
+    },
+    showKeyboard: () => _showTermKbd(),
+    hideKeyboard: () => _hideTermKbd(),
+    /** Pause CPU-heavy background work (cursor blink) when panel is not visible */
+    pause() {
+      if (term) term.options.cursorBlink = false;
+    },
+    /** Resume cursor blink when panel becomes active again */
+    resume() {
+      if (term) term.options.cursorBlink = true;
     },
   };
 

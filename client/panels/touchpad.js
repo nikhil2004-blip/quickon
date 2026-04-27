@@ -27,31 +27,24 @@
   // ── Config ────────────────────────────────────────────────────
   const CFG = {
     sensitivity: 3.0,   // px multiplier — tuned for full HD coverage
-    deadZonePx: 0.5,   // raw delta below this = ignore (kills micro-jitter)
+    deadZonePx: 0.3,   // raw delta below this = ignore (kills micro-jitter)
     tapMaxMovePx: 12,    // max movement to count as a tap
     tapMaxMs: 300,   // max duration for a tap
     scrollRatio: 2.0,   // scroll sensitivity
     gestureMinPx: 30,    // minimum swipe distance to trigger a gesture
     gestureMaxMs: 500,   // maximum time for a swipe gesture
-    // Velocity-adaptive filter (One Euro Filter principle):
-    //   Small/slow movement  → low alpha (more smoothing, kills jitter)
-    //   Large/fast movement  → high alpha (near raw, kills lag)
-    alphaMin: 0.4,   // alpha for near-zero movement (max smoothing)
-    alphaMax: 1.0,   // alpha for fast movement (no smoothing = no lag)
-    speedThreshold: 12,    // px/event below which smoothing kicks in fully
   };
 
   // ── State ─────────────────────────────────────────────────────
   /** Map<pointerId, {x, y, startX, startY, startTime}> */
   const _ptrs = new Map();
 
-  // Adaptive-filter state (x and y channels)
-  let _filtX = null;
-  let _filtY = null;
 
-  // rAF accumulator
+  // Sub-pixel accumulator — keeps fractional remainders between pointermove events
   let _accDx = 0;
   let _accDy = 0;
+
+  // rAF handle — no longer used for mouse moves but kept for reset() compatibility
   let _rafId = null;
 
   // Scroll accumulator
@@ -64,36 +57,35 @@
   // Double-tap detection for keyboard trigger
   let _lastTapTime = 0;
 
-  // Timestamp of last pointermove — used to detect inactivity gaps
-  let _lastMoveTime = 0;
-  const INACTIVITY_RESET_MS = 40;
+  // Set by reset(); cleared on first pointerdown.
+  // Ensures the accumulator is wiped on the FIRST touch after returning
+  // to the touchpad from another panel — without affecting mid-stroke behaviour.
+  let _firstTouch = true;
+
+  // Inhibit window: drop all pointer-move sends until this timestamp
+  // Used to absorb the OS event burst after returning from a widget action.
+  let _inhibitUntil = 0;
+
+  // Drag-lock state: when true, left button is held on the PC
+  let _dragLocked = false;
 
 
-  /** Nuke all smoothing/accumulator state — clean slate */
+  /** Nuke all accumulator state — clean slate */
   function _resetSmoothing() {
-    _filtX = null;
-    _filtY = null;
     _accDx = 0;
     _accDy = 0;
     _scrollAcc = 0;
   }
 
-  // ── rAF batch flush ───────────────────────────────────────────
-  function _scheduleFlush() {
-    if (_rafId !== null) return;
-    _rafId = requestAnimationFrame(_flush);
-  }
-
-  function _flush() {
-    _rafId = null;
-
-    // Use truncation not rounding — rounding causes sign-flip jitter on slow moves.
-    // e.g. acc=0.7 → round→1, remainder=-0.3 → next frame sends -1 → back-and-forth
-    let sendDx = _accDx | 0;   // fast bitwise trunc (works for ±2^30)
+  // ── Direct send — no rAF, no EMA, no lag ─────────────────────
+  // Raw deltas are already dead-zone filtered below.
+  // Sub-pixel remainders are kept in _accDx/_accDy across events
+  // so slow, precise movements still register.
+  function _flushNow() {
+    let sendDx = _accDx | 0;
     let sendDy = _accDy | 0;
 
-    // Bias: if we have a sub-pixel remainder ≥0.5 that won't be sent, nudge it now
-    // This prevents perpetual sub-pixel buildup when moving diagonally slowly.
+    // Nudge sub-pixel remainders ≥0.5 so very slow drags still move
     if (sendDx === 0 && Math.abs(_accDx) >= 0.5) sendDx = _accDx > 0 ? 1 : -1;
     if (sendDy === 0 && Math.abs(_accDy) >= 0.5) sendDy = _accDy > 0 ? 1 : -1;
 
@@ -104,50 +96,11 @@
     }
   }
 
-  // ── Velocity-adaptive filter (One Euro Filter principle) ──────
-  //
-  // Fixed EMA has an unavoidable trade-off:
-  //   Low alpha  → smooth but laggy on fast moves (big circles trail behind)
-  //   High alpha → responsive but jittery on slow moves
-  //
-  // Solution: alpha scales with speed.
-  //   Fast movement  → alpha near 1.0 → raw passthrough → zero lag
-  //   Slow movement  → alpha near 0.4 → heavy smoothing → zero jitter
-  //
-  function _smooth(rawDx, rawDy) {
-    const now = performance.now();
-
-    // Fresh stroke after inactivity — wipe stale state entirely
-    if (now - _lastMoveTime > INACTIVITY_RESET_MS) {
-      _resetSmoothing();
-    }
-    _lastMoveTime = now;
-
-    // Dead zone: ignore sub-pixel noise
+  // ── Raw delta computation (dead-zone only, no EMA) ───────────
+  function _applyDead(rawDx, rawDy) {
     const dx = Math.abs(rawDx) < CFG.deadZonePx ? 0 : rawDx;
     const dy = Math.abs(rawDy) < CFG.deadZonePx ? 0 : rawDy;
-
-    // Speed of this event (magnitude of delta vector)
-    const speed = Math.sqrt(dx * dx + dy * dy);
-
-    // Map speed → alpha: slow=alphaMin, fast=alphaMax (clamped)
-    const t = Math.min(1, speed / CFG.speedThreshold);
-    const alpha = CFG.alphaMin + t * (CFG.alphaMax - CFG.alphaMin);
-
-    // Initialize filter state if starting fresh to prevent stickiness / startup lag
-    if (_filtX === null || _filtY === null) {
-      _filtX = dx;
-      _filtY = dy;
-    } else {
-      // Apply adaptive filter
-      _filtX = alpha * dx + (1 - alpha) * _filtX;
-      _filtY = alpha * dy + (1 - alpha) * _filtY;
-    }
-
-    return {
-      dx: _filtX * CFG.sensitivity,
-      dy: _filtY * CFG.sensitivity,
-    };
+    return { dx: dx * CFG.sensitivity, dy: dy * CFG.sensitivity };
   }
 
   // ── Gesture helper ────────────────────────────────────────────
@@ -220,9 +173,12 @@
     e.preventDefault();
     $touchpad.setPointerCapture(e.pointerId);
 
-    // ALWAYS reset smoothing on a fresh touch — this is the #1 jitter killer.
-    // After any period of not touching, the EMA/accumulators must start clean.
-    _resetSmoothing();
+    // First touch after a panel switch → reset accumulator to avoid phantom moves
+    // from any stale sub-pixel remainder left over from the previous session.
+    if (_firstTouch) {
+      _firstTouch = false;
+      _resetSmoothing();
+    }
 
     _ptrs.set(e.pointerId, {
       id: e.pointerId,
@@ -230,11 +186,6 @@
       startX: e.clientX, startY: e.clientY,
       startTime: Date.now(),
     });
-
-    // ── Cursor-lag fix: while fingers drag on the TOUCHPAD, suppress
-    //    hit-testing on the keyboard sheet. But ONLY when keyboard is
-    //    hidden — when it's visible it must receive its own events.
-    if (_kbdSheet && !_kbdVisible) _kbdSheet.style.pointerEvents = 'none';
 
     // Reset gesture state when finger count changes
     if (_ptrs.size >= 2) {
@@ -257,11 +208,12 @@
     const count = _ptrs.size;
 
     if (count === 1) {
-      // Single finger → move mouse with EMA smoothing
-      const { dx, dy } = _smooth(rawDx, rawDy);
+      // Single finger → move mouse: apply dead-zone and sensitivity, send immediately
+      if (Date.now() < _inhibitUntil) return;  // absorb OS burst after panel switch
+      const { dx, dy } = _applyDead(rawDx, rawDy);
       _accDx += dx;
       _accDy += dy;
-      _scheduleFlush();
+      _flushNow();   // send immediately — no rAF, no EMA, no lag
 
     } else if (count === 2) {
       // Two-finger drag → scroll
@@ -342,8 +294,6 @@
     if (_ptrs.size === 0) {
       _resetSmoothing();
       _gestureTriggered = false;
-      // Restore keyboard pointer-events (only matters when keyboard is hidden)
-      if (_kbdSheet) _kbdSheet.style.pointerEvents = '';
     }
   }, { passive: false });
 
@@ -352,7 +302,6 @@
     if (_ptrs.size === 0) {
       _resetSmoothing();
       _gestureTriggered = false;
-      if (_kbdSheet && !_kbdVisible) _kbdSheet.style.pointerEvents = '';
     }
   });
 
@@ -428,36 +377,65 @@
     return btn;
   }
 
-  function _buildSheet() {
-    if (_kbdSheet) return;   // already built
+  /**
+   * _buildKeyboardDOM — builds the QWERTY sheet DOM inside `container`.
+   * Fully reusable: onKey/onDismiss/onSend are caller-supplied callbacks.
+   *
+   * @param {HTMLElement} container  The .kbd-sheet div to populate.
+   * @param {Function}    onKey      Called with (keyName) on each key press.
+   * @param {Function}    onDismiss  Called when ▼ or swipe-down is triggered.
+   * @param {Function|null} onSend   Called with (text) on Send tap; null = hide Send row.
+   * @param {Object}      localMods  Modifier state obj {ctrl,alt,shift,win} (mutated).
+   * @param {Function}    toggleMod  Called with (modName, btnEl) to toggle a modifier.
+   */
+  function _buildKeyboardDOM(container, onKey, onDismiss, onSend, localMods, toggleMod) {
+    // ── Block Android IME (native keyboard) ───────────────────────────────
+    // Any focused element inside the sheet can trigger Chrome-for-Android's
+    // virtual keyboard. Intercept every focusin and immediately blur it.
+    container.addEventListener('focusin', e => {
+      e.target.blur();
+      e.stopPropagation();
+    }, true);
+    container.setAttribute('inputmode', 'none');
 
-    const sheet = document.createElement('div');
-    sheet.id = 'kbd-sheet';
-    sheet.className = 'kbd-sheet';
-
-    // ── Handle bar: ▼ dismiss button (left) + pill (center) ───────────
+    // ── Handle bar ───────────────────────────────────────────────────────
     const handle = document.createElement('div');
     handle.className = 'kbd-sheet-handle-row';
-    handle.innerHTML = `
-      <button class="kbd-sheet-dismiss" id="kbd-sheet-close" aria-label="Hide keyboard">▼</button>
-      <div class="kbd-sheet-handle"></div>
-    `;
-    sheet.appendChild(handle);
+    const dismissBtn = document.createElement('button');
+    dismissBtn.className = 'kbd-sheet-dismiss';
+    dismissBtn.setAttribute('aria-label', 'Hide keyboard');
+    dismissBtn.textContent = '▼';
+    dismissBtn.addEventListener('pointerdown', e => {
+      e.preventDefault(); e.stopPropagation(); onDismiss();
+    });
+    const pill = document.createElement('div');
+    pill.className = 'kbd-sheet-handle';
+    handle.appendChild(dismissBtn);
+    handle.appendChild(pill);
+    container.appendChild(handle);
 
-    // ── Text display + Send row ──────────────────────────────────
-    // Use a <div> NOT an <input> — a div can NEVER open the native
-    // mobile keyboard. The QWERTY keys below write into it.
-    const bulkRow = document.createElement('div');
-    bulkRow.className = 'kbd-sheet-bulk';
-    bulkRow.innerHTML = `
-      <div id="kbd-sheet-text" class="kbd-sheet-text-display"
-        aria-label="Typed text"></div>
-      <button class="kbd-sheet-send" id="kbd-sheet-send">Send</button>
-    `;
-    sheet.appendChild(bulkRow);
+    // ── Text display + Send row ──────────────────────────────────────────
+    let textDisp = null;
+    if (onSend) {
+      const bulkRow = document.createElement('div');
+      bulkRow.className = 'kbd-sheet-bulk';
+      textDisp = document.createElement('div');
+      textDisp.className = 'kbd-sheet-text-display';
+      textDisp.setAttribute('aria-label', 'Typed text');
+      const sendBtn = document.createElement('button');
+      sendBtn.className = 'kbd-sheet-send';
+      sendBtn.textContent = 'Send';
+      sendBtn.addEventListener('pointerdown', e => {
+        e.preventDefault(); e.stopPropagation();
+        const text = textDisp.textContent.replace(/\u00a0/g, ' ').trim();
+        if (text) { onSend(text); textDisp.textContent = ''; }
+      });
+      bulkRow.appendChild(textDisp);
+      bulkRow.appendChild(sendBtn);
+      container.appendChild(bulkRow);
+    }
 
-
-    // ── Modifier row ────────────────────────────────────────────
+    // ── Modifier row ─────────────────────────────────────────────────────
     const modRow = document.createElement('div');
     modRow.className = 'kbs-row';
     [
@@ -469,34 +447,43 @@
       btn.className = 'kbs-key kbs-mod';
       btn.textContent = label;
       if (mod) {
-        btn.id = `ks-mod-${mod}`;
+        btn.dataset.mod = mod;
         btn.addEventListener('pointerdown', e => {
           e.preventDefault(); e.stopPropagation();
-          _toggleMod(mod);
+          toggleMod(mod, btn);
         });
       } else {
         btn.addEventListener('pointerdown', e => {
           e.preventDefault(); e.stopPropagation();
-          _sendKey(key);
+          _updateTextDisp(textDisp, localMods, key);
+          onKey(key, localMods);
         });
       }
       modRow.appendChild(btn);
     });
-    sheet.appendChild(modRow);
+    container.appendChild(modRow);
 
-    // ── QWERTY rows ─────────────────────────────────────────────
+    // ── QWERTY rows ──────────────────────────────────────────────────────
     ROWS.forEach(rowKeys => {
       const row = document.createElement('div');
       row.className = 'kbs-row';
       rowKeys.forEach(k => {
         const keyName = KEY_MAP[k] || k.toLowerCase();
-        const isWide = k === '⌫' || k === '↵';
-        row.appendChild(_makeKey(k, keyName, `kbs-key${isWide ? ' kbs-wide' : ''}`));
+        const isWide  = k === '\u232b' || k === '\u21b5';
+        const btn = document.createElement('button');
+        btn.className = 'kbs-key' + (isWide ? ' kbs-wide' : '');
+        btn.textContent = k;
+        btn.addEventListener('pointerdown', e => {
+          e.preventDefault(); e.stopPropagation();
+          _updateTextDisp(textDisp, localMods, keyName);
+          onKey(keyName, localMods);
+        });
+        row.appendChild(btn);
       });
-      sheet.appendChild(row);
+      container.appendChild(row);
     });
 
-    // ── Bottom row: space + arrows ──────────────────────────────
+    // ── Bottom row: Space + Arrows ────────────────────────────────────────
     const bottomRow = document.createElement('div');
     bottomRow.className = 'kbs-row';
     const spaceBtn = document.createElement('button');
@@ -504,41 +491,23 @@
     spaceBtn.textContent = 'Space';
     spaceBtn.addEventListener('pointerdown', e => {
       e.preventDefault(); e.stopPropagation();
-      _sendKey('space');
+      _updateTextDisp(textDisp, localMods, 'space');
+      onKey('space', localMods);
     });
     bottomRow.appendChild(spaceBtn);
-    [['\u2190', 'left'], ['\u2191', 'up'], ['\u2193', 'down'], ['\u2192', 'right']].forEach(([lbl, k]) => {
+    [['←','left'],['↑','up'],['↓','down'],['→','right']].forEach(([lbl, k]) => {
       const b = document.createElement('button');
       b.className = 'kbs-key kbs-arrow';
       b.textContent = lbl;
       b.addEventListener('pointerdown', e => {
         e.preventDefault(); e.stopPropagation();
-        _sendKey(k);
+        onKey(k, localMods);
       });
       bottomRow.appendChild(b);
     });
-    sheet.appendChild(bottomRow);
+    container.appendChild(bottomRow);
 
-    // ── Wire close/send ─────────────────────────────────────────
-    // Close button
-    handle.querySelector('#kbd-sheet-close').addEventListener('pointerdown', e => {
-      e.preventDefault(); e.stopPropagation();
-      _hideKeyboard();
-    });
-
-    // Bulk send
-    bulkRow.querySelector('#kbd-sheet-send').addEventListener('pointerdown', e => {
-      e.preventDefault(); e.stopPropagation();
-      const disp = bulkRow.querySelector('#kbd-sheet-text');
-      const text = disp.textContent.replace(/\u00a0/g, ' ').trim();
-      if (text) {
-        PocketDeck.send({ type: 'text_type', text });
-        disp.textContent = '';
-      }
-    });
-
-
-    // ── Swipe-down-to-dismiss on handle ─────────────────────────
+    // ── Swipe-down-to-dismiss ────────────────────────────────────────────
     let _swipeStartY = null;
     handle.addEventListener('pointerdown', e => {
       _swipeStartY = e.clientY;
@@ -547,31 +516,64 @@
     handle.addEventListener('pointermove', e => {
       if (_swipeStartY === null) return;
       const dy = e.clientY - _swipeStartY;
-      if (dy > 0) sheet.style.transform = `translateY(${dy}px)`;
+      if (dy > 0) container.style.transform = `translateY(${dy}px)`;
     }, { passive: true });
     handle.addEventListener('pointerup', e => {
       const dy = e.clientY - (_swipeStartY || e.clientY);
       _swipeStartY = null;
-      sheet.style.transform = '';
-      if (dy > 60) _hideKeyboard();
+      container.style.transform = '';
+      if (dy > 60) onDismiss();
     }, { passive: true });
+  }
 
-    // Stop touchpad pointer events from leaking into the sheet
+  /** Update text display div based on what key was pressed */
+  function _updateTextDisp(textDisp, localMods, key) {
+    if (!textDisp) return;
+    const activeMods  = Object.entries(localMods).filter(([,v]) => v).map(([k]) => k);
+    const hasShiftOnly = activeMods.length === 1 && localMods.shift;
+    const hasNoMods    = activeMods.length === 0;
+    if (!hasNoMods && !hasShiftOnly) return;  // combo — don't print to display
+    if (key === 'backspace') {
+      textDisp.textContent = textDisp.textContent.slice(0, -1);
+    } else if (key === 'enter') {
+      textDisp.textContent = '';
+    } else if (key === 'space') {
+      textDisp.textContent += '\u00a0';
+    } else if (key.length === 1) {
+      textDisp.textContent += hasShiftOnly ? key.toUpperCase() : key;
+    }
+  }
+
+  function _buildSheet() {
+    if (_kbdSheet) return;  // already built
+
+    const sheet = document.createElement('div');
+    sheet.id        = 'kbd-sheet';
+    sheet.className = 'kbd-sheet';
+
+    _buildKeyboardDOM(
+      sheet,
+      /* onKey */    (key, mods) => _sendKey(key),
+      /* onDismiss */() => _hideKeyboard(),
+      /* onSend */   text => PocketDeck.send({ type: 'text_type', text }),
+      _mods,
+      /* toggleMod */(mod) => _toggleMod(mod),
+    );
+
+    // Stop touchpad events leaking into sheet
     sheet.addEventListener('pointerdown', e => e.stopPropagation());
 
     document.getElementById('panel-touchpad').appendChild(sheet);
     _kbdSheet = sheet;
 
-    // ── Persistent ▲ toggle button (always visible when sheet is hidden) ───
-    // Lives outside the sheet so it's not covered by it.
+    // ── Persistent ▲ toggle ──────────────────────────────────────────────
     const $toggle = document.createElement('button');
-    $toggle.id = 'kbd-toggle-btn';
+    $toggle.id        = 'kbd-toggle-btn';
     $toggle.className = 'kbd-toggle-btn';
     $toggle.innerHTML = '▲';
     $toggle.setAttribute('aria-label', 'Show keyboard');
     $toggle.addEventListener('pointerdown', e => {
-      e.preventDefault();
-      e.stopPropagation();
+      e.preventDefault(); e.stopPropagation();
       _showKeyboard();
     });
     document.getElementById('panel-touchpad').appendChild($toggle);
@@ -629,6 +631,44 @@
     document.getElementById('sens-val').textContent = CFG.sensitivity + '×';
   });
 
+  // ── Drag Lock (hold left-button for screenshot drag-select) ───
+  // Shows a floating toggle button at the bottom-right of the touchpad.
+  // ON: sends mouse_button {button:"left", pressed:true}  — cursor moves drag
+  // OFF: sends mouse_button {button:"left", pressed:false} — releases
+  // Auto-cancels after 10 seconds of no movement to prevent getting stuck.
+  let _dragLockTimer = null;
+
+  function _setDragLock(active) {
+    if (_dragLocked === active) return;
+    _dragLocked = active;
+    PocketDeck.send({ type: 'mouse_button', button: 'left', pressed: active });
+    const $btn = document.getElementById('drag-lock-btn');
+    if ($btn) {
+      $btn.classList.toggle('active', active);
+      $btn.textContent = active ? '🔒Drag' : '🖱 Drag';
+    }
+    if (active) {
+      // Auto-release after 10 s
+      clearTimeout(_dragLockTimer);
+      _dragLockTimer = setTimeout(() => _setDragLock(false), 10_000);
+    } else {
+      clearTimeout(_dragLockTimer);
+    }
+  }
+
+  // Build the drag-lock button and inject into the touchpad panel
+  const $dragLockBtn = document.createElement('button');
+  $dragLockBtn.id = 'drag-lock-btn';
+  $dragLockBtn.className = 'drag-lock-btn';
+  $dragLockBtn.textContent = '🖱 Drag';
+  $dragLockBtn.setAttribute('aria-label', 'Drag Lock — hold left button for drag-select');
+  $dragLockBtn.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    e.stopPropagation();
+    _setDragLock(!_dragLocked);
+  });
+  document.getElementById('panel-touchpad').appendChild($dragLockBtn);
+
   // ── Public API ────────────────────────────────────────────────
   window.TouchpadPanel = {
     reset() {
@@ -638,11 +678,22 @@
       _resetSmoothing();
       _gestureTriggered = false;
       _gestureStartPtrs = [];
-      _lastMoveTime = 0;
+      _firstTouch = true;   // ensures first touch after panel switch starts clean
       _hideKeyboard();
+      // Release drag lock on panel switch (don't leave button held on PC)
+      if (_dragLocked) _setDragLock(false);
+      _inhibitUntil = 0;
     },
-    showKeyboard: _showKeyboard,
-    hideKeyboard: _hideKeyboard,
+    /** Inhibit pointer-move sends for `ms` milliseconds. Absorbs OS event bursts. */
+    inhibit(ms) {
+      _inhibitUntil = Date.now() + ms;
+    },
+    showKeyboard:     _showKeyboard,
+    hideKeyboard:     _hideKeyboard,
+    /** Build the standard QWERTY sheet inside any container with custom callbacks */
+    buildKeyboardDOM: _buildKeyboardDOM,
+    KEY_MAP,
+    ROWS,
   };
 
 })();

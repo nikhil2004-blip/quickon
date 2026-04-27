@@ -1,6 +1,6 @@
 """
 mouse.py — Mouse event handler
-Handles mouse_move, mouse_click, mouse_scroll events.
+Handles mouse_move, mouse_click, mouse_scroll, mouse_down, mouse_up events.
 
 On Windows: uses SendInput() — the correct modern Win32 API for injecting
 hardware-level relative mouse events. This preserves Windows Pointer
@@ -88,8 +88,8 @@ if not _IS_WINDOWS:
 
 def handle_mouse_move(dx: float, dy: float) -> None:
     """Move the cursor by (dx, dy) pixels (relative)."""
-    mx = int(dx * SENSITIVITY)
-    my = int(dy * SENSITIVITY)
+    mx = int(round(dx * SENSITIVITY))
+    my = int(round(dy * SENSITIVITY))
     if mx == 0 and my == 0:
         return
     if _IS_WINDOWS:
@@ -134,3 +134,27 @@ def handle_mouse_scroll(dx: float, dy: float) -> None:
             _send_mouse(MOUSE_HWHEEL, data=int(dx * 30))
     elif _PYNPUT_OK:
         _pynput_mouse.scroll(int(dx), int(dy))
+
+
+def handle_mouse_button(button: str, pressed: bool) -> None:
+    """
+    Press OR release a single mouse button without the paired up/down.
+    Used for click-drag (drag lock): pressed=True → button held,
+    pressed=False → button released.
+    """
+    btn = button.lower()
+    if _IS_WINDOWS:
+        if btn == "right":
+            flag = MOUSE_RIGHTDOWN if pressed else MOUSE_RIGHTUP
+        elif btn == "middle":
+            flag = MOUSE_MIDDLEDOWN if pressed else MOUSE_MIDDLEUP
+        else:
+            flag = MOUSE_LEFTDOWN if pressed else MOUSE_LEFTUP
+        _send_mouse(flag)
+    elif _PYNPUT_OK:
+        from pynput.mouse import Button as _B
+        b = {"right": _B.right, "middle": _B.middle}.get(btn, _B.left)
+        if pressed:
+            _pynput_mouse.press(b)
+        else:
+            _pynput_mouse.release(b)

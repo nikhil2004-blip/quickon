@@ -30,7 +30,9 @@ sys.path.insert(0, str(_SERVER_DIR))
 from utils.auth import generate_token, validate_token
 from utils.network import get_local_ips, get_os_name
 from utils.qr import print_startup_banner
-from handlers.mouse import handle_mouse_move, handle_mouse_click, handle_mouse_scroll
+from handlers.mouse import (
+    handle_mouse_move, handle_mouse_click, handle_mouse_scroll, handle_mouse_button
+)
 from handlers.keyboard import handle_key_tap, handle_key_down, handle_key_up, handle_text_type
 from handlers.widgets import load_widgets, get_widget_list_payload, run_widget
 from handlers.media import handle_media
@@ -54,8 +56,9 @@ logger = logging.getLogger("pocketdeck")
 TOKEN: str = ""
 active_terminals = {}
 
-# Thread pool for blocking syscalls (SendInput, pynput) so they don't stall the event loop
-_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="input")
+# Thread pool for blocking syscalls (SendInput, pynput) so they don't stall the event loop.
+# Use 4 workers: mouse_move comes in at ~60/s, needs a dedicated fast path.
+_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="input")
 
 
 # ══════════════════════════════════════════════════════════════
@@ -163,18 +166,23 @@ async def _dispatch(ws: WebSocketServerProtocol, raw: str) -> None:
         loop.run_in_executor(_executor, handle_mouse_scroll,
                              msg.get("dx", 0), msg.get("dy", 0))
 
+    elif t == "mouse_button":
+        # Independent press/release — used for drag-lock (screenshot selection etc.)
+        loop.run_in_executor(_executor, handle_mouse_button,
+                             msg.get("button", "left"), msg.get("pressed", True))
+
     # ── Keyboard ───────────────────────────────────────────────
     elif t == "key_tap":
-        handle_key_tap(msg.get("key", ""))
+        loop.run_in_executor(_executor, handle_key_tap, msg.get("key", ""))
 
     elif t == "key_down":
-        handle_key_down(msg.get("key", ""))
+        loop.run_in_executor(_executor, handle_key_down, msg.get("key", ""))
 
     elif t == "key_up":
-        handle_key_up(msg.get("key", ""))
+        loop.run_in_executor(_executor, handle_key_up, msg.get("key", ""))
 
     elif t == "text_type":
-        handle_text_type(msg.get("text", ""))
+        loop.run_in_executor(_executor, handle_text_type, msg.get("text", ""))
 
     # ── Terminal (Phase 3) ─────────────────────────────────────
     elif t == "terminal_in":

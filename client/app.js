@@ -48,11 +48,9 @@ const PocketDeck = {
       return false;   // silently drop — avoid queuing
     }
 
-    // Backpressure guard for high-frequency mouse moves:
-    // If the send buffer already has data queued, drop this mouse_move.
-    // This prevents burst-delivery where all queued moves arrive late together.
-    // 4096 bytes = ~60 mouse_move messages — if we're this far behind, drop it.
-    if (msg.type === 'mouse_move' && _ws.bufferedAmount > 4096) {
+    // Backpressure guard: drop mouse_move only if the socket is severely congested.
+    // With immediate sends the buffer drains fast; 16 KB = ~240 queued moves.
+    if (msg.type === 'mouse_move' && _ws.bufferedAmount > 16384) {
       return false;
     }
 
@@ -233,30 +231,38 @@ document.querySelectorAll('.tab').forEach(tab => {
     const panel = document.getElementById(`panel-${panelId}`);
     if (panel) panel.classList.add('active');
 
-    // ── Switching TO terminal: refit xterm ──────────────────────
-    if (panelId === 'terminal' && window.TerminalPanel && TerminalPanel.fit) {
-      TerminalPanel.fit();
-    }
-
-    // ── Switching AWAY from terminal: blur xterm to quiesce its
-    //    internal rAF/cursor-blink loop so it doesn't compete with
-    //    the touchpad flush rAF on the next panel. ───────────────
+    // ── Switching AWAY from terminal: aggressively quiesce xterm ─
+    // xterm.js runs a setInterval cursor-blink timer that fires every ~500ms
+    // regardless of whether the panel is visible. On Android this is enough
+    // to cause periodic jank on the touchpad. Disabling cursorBlink stops it.
     if (leavingPanel === 'terminal') {
       const termContainer = document.getElementById('terminal-container');
       if (termContainer) {
-        // Blur any focused element inside xterm
         const focused = termContainer.querySelector(':focus');
         if (focused) focused.blur();
       }
+      // Pause xterm cursor-blink timer (the #1 background CPU consumer)
+      if (window.TerminalPanel && TerminalPanel.pause) TerminalPanel.pause();
     }
 
-    // ── Switching TO touchpad: hard-reset ALL motion state ──────
-    // Prevents lag caused by:
-    //  1. Stale _filtX/_filtY EMA values from before the tab switch
-    //  2. Ghost pointers left in _ptrs from mid-gesture tab switches
-    //  3. Pending rAF flush that would fire with stale deltas
-    if (panelId === 'touchpad' && window.TouchpadPanel && TouchpadPanel.reset) {
+    // ── Switching TO terminal: refit + resume cursor blink ───────
+    if (panelId === 'terminal' && window.TerminalPanel) {
+      if (TerminalPanel.resume) TerminalPanel.resume();
+      if (TerminalPanel.fit)    TerminalPanel.fit();
+    }
+
+    // ── Switching AWAY from touchpad: clean up any ghost state ───
+    if (leavingPanel === 'touchpad' && window.TouchpadPanel && TouchpadPanel.reset) {
       TouchpadPanel.reset();
+    }
+
+    // ── Switching TO touchpad: hard-reset + 350ms input inhibit ──
+    // Widget launch takes ~200-400ms on Windows; the OS queues any
+    // pointer events that fired during that window and dumps them all
+    // at once when the event loop drains. The inhibit absorbs that burst.
+    if (panelId === 'touchpad' && window.TouchpadPanel) {
+      if (TouchpadPanel.reset) TouchpadPanel.reset();
+      if (TouchpadPanel.inhibit) TouchpadPanel.inhibit(350);
     }
   });
 });
