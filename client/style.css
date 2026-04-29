@@ -6,41 +6,42 @@
 
 /* ── Design tokens ─────────────────────────────────────────── */
 :root {
-  --bg-base:     #09090b;       /* zinc-950 */
-  --bg-surface:  #141417;
-  --bg-raised:   #1f1f23;
-  --bg-overlay:  #27272a;
+  --bg-base:     #0e0e0d;
+  --bg-surface:  #141312;
+  --bg-raised:   #20201e;
+  --bg-overlay:  #2a2a28;
 
-  --accent:      #71717a;       /* zinc-500 */
-  --accent-glow: rgba(113, 113, 122, 0.1);
-  --accent-dim:  #52525b;
+  --accent:      #e4e4cc;
+  --accent-glow: rgba(228, 228, 204, 0.15);
+  --accent-dim:  #c8c8b0;
 
-  --success:     #4ade80;
-  --warning:     #fbbf24;
-  --danger:      #f87171;
+  --success:     #b1c29e;
+  --warning:     #d4b882;
+  --danger:      #ffb4ab;
 
-  --text-primary:   #f4f4f5;    /* zinc-50 */
-  --text-secondary: #a1a1aa;    /* zinc-400 */
-  --text-muted:     #71717a;    /* zinc-500 */
+  --text-primary:   #e5e2df;
+  --text-secondary: #c8c7bc;
+  --text-muted:     #929187;
+  --text-inverse:   #303221;
 
-  --border:      rgba(255,255,255,.04);
-  --border-strong: rgba(255,255,255,.08);
+  --border:      #353533;
+  --border-strong: #47473f;
 
-  --radius-sm:   8px;
-  --radius-md:   16px;
-  --radius-lg:   24px;
+  --radius-sm:   4px;
+  --radius-md:   8px;
+  --radius-lg:   16px;
   --radius-pill: 999px;
 
-  --shadow-sm:   0 2px 8px rgba(0,0,0,.3);
-  --shadow-md:   0 8px 24px rgba(0,0,0,.4);
+  --shadow-sm:   0 2px 8px rgba(0,0,0,.4);
+  --shadow-md:   0 8px 24px rgba(0,0,0,.5);
   --shadow-glow: 0 0 16px var(--accent-glow);
 
-  --font-sans:   'Inter', system-ui, -apple-system, sans-serif;
+  --font-sans:   'Manrope', system-ui, -apple-system, sans-serif;
+  --font-display: 'Space Grotesk', system-ui, sans-serif;
   --font-mono:   'JetBrains Mono', 'Fira Code', monospace;
 
   --tab-h:       48px;
   --topbar-h:    56px;
-
 }
 
 /* ── Reset & base ───────────────────────────────────────────── */
@@ -102,7 +103,7 @@ html, body {
   text-align: center;
 }
 .logo-icon { width: 64px; height: 64px; display: block; margin: 0 auto 8px; object-fit: contain; }
-.logo h1 { font-size: 28px; font-weight: 700; letter-spacing: -.5px; }
+.logo h1 { font-family: var(--font-display); font-size: 28px; font-weight: 700; letter-spacing: -.5px; }
 .tagline { color: var(--text-secondary); font-size: 14px; margin-top: 4px; }
 
 /* Status pill */
@@ -164,8 +165,10 @@ input[type="text"]:focus {
   border: none;
   border-radius: var(--radius-sm);
   cursor: pointer;
+  font-family: var(--font-display);
   font-size: 14px;
   font-weight: 600;
+  letter-spacing: 0.5px;
   padding: 10px 16px;
   transition: background .15s, transform .1s, box-shadow .15s;
   -webkit-tap-highlight-color: transparent;
@@ -178,8 +181,8 @@ input[type="text"]:focus {
   border: 1px solid var(--border-strong);
   box-shadow: var(--shadow-sm);
 }
-.btn-primary:hover { background: var(--accent-dim); color: #fff; }
-.btn-primary:active { background: var(--accent-dim); box-shadow: none; border-color: transparent; }
+.btn-primary:hover { background: var(--accent-dim); color: var(--text-inverse); }
+.btn-primary:active { background: var(--accent-dim); color: var(--text-inverse); box-shadow: none; border-color: transparent; }
 
 /* ── App screen layout ──────────────────────────────────────── */
 #app-screen {
@@ -222,8 +225,10 @@ input[type="text"]:focus {
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
   cursor: pointer;
+  font-family: var(--font-display);
   font-size: 13px;
   font-weight: 500;
+  letter-spacing: 0.5px;
   padding: 7px 14px;
   white-space: nowrap;
   transition: color .15s, background .15s;
@@ -231,7 +236,7 @@ input[type="text"]:focus {
 }
 .tab.active {
   background: var(--accent);
-  color: #fff;
+  color: var(--text-inverse);
 }
 .tab:not(.active):hover { color: var(--text-primary); background: var(--bg-raised); }
 
@@ -531,7 +536,7 @@ input[type="text"]:focus {
   gap: 8px;
   min-height: 90px;
   padding: 14px 8px;
-  font-family: var(--font-sans);
+  font-family: var(--font-display);
   font-size: 12px;
   font-weight: 500;
   transition: background .12s, transform .1s, border-color .12s, box-shadow .12s;
@@ -584,6 +589,7 @@ input[type="text"]:focus {
 }
 
 .media-label {
+  font-family: var(--font-display);
   font-size: 13px;
   font-weight: 600;
   letter-spacing: 1px;
@@ -620,11 +626,12 @@ input[type="text"]:focus {
 .media-center {
   width: 80px; height: 80px;
   background: var(--accent);
+  color: var(--text-inverse);
   border-color: var(--accent);
   box-shadow: 0 0 24px var(--accent-glow);
 }
 .media-center .media-icon { font-size: 32px; }
-.media-center .media-lbl  { color: rgba(255,255,255,.7); }
+.media-center .media-lbl  { color: rgba(48, 50, 33, 0.7); }
 .media-center:active {
   background: var(--accent-dim);
   transform: scale(.92);
