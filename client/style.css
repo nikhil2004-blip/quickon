@@ -58,8 +58,10 @@ html, body {
   user-select: none;
 }
 
-/* Google Fonts — loaded async by browser if available */
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
+/* Google Fonts — loaded via <link> in HTML head with font-display=swap.
+   @import was REMOVED because it is render-blocking: the browser cannot
+   continue parsing CSS until the font stylesheet is fully downloaded.
+   This was the primary cause of the "initial loading lag". */
 
 /* ── Screen system ──────────────────────────────────────────── */
 .screen {
@@ -296,7 +298,8 @@ input[type="text"]:focus {
   background: radial-gradient(circle closest-side, rgba(255,255,255,0.06), transparent);
   pointer-events: none;
   border-radius: 50%;
-  will-change: transform, opacity;
+  /* will-change REMOVED from idle state — permanently holding a GPU layer
+     wastes VRAM and keeps the compositor busy even when not touching. */
   opacity: 0;
   transition: opacity 0.4s ease;
   z-index: 10;
@@ -304,6 +307,7 @@ input[type="text"]:focus {
 .touch-glow.active {
   opacity: 1;
   transition: opacity 0.1s ease; /* fast fade in */
+  will-change: transform, opacity;  /* GPU-promote only while actively tracking */
 }
 
 
@@ -368,7 +372,8 @@ input[type="text"]:focus {
 #gesture-flash {
   font-family: var(--font-sans);
   letter-spacing: .5px;
-  backdrop-filter: blur(8px);
+  /* backdrop-filter REMOVED — blur() is GPU-expensive on mobile and was
+     causing compositor stalls during active pointer events. */
 }
 
 /* ── Utility ─────────────────────────────────────────────────── */
@@ -665,15 +670,15 @@ input[type="text"]:focus {
   padding: 4px 0 calc(8px + env(safe-area-inset-bottom, 8px));
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;                          /* reduced from 3px to save vertical space */
 
-  /* Responsive max-height for different screen sizes and orientations
-     Works on tall narrow phones (Realme 13 Pro) and all other devices.
-     Takes 65% of viewport but leaves at least 120px for other content. */
-  max-height: min(65vh, calc(100vh - 120px));
-
-  /* Allow scrolling if content overflows on tiny screens */
-  overflow-y: auto;
+  /* NO max-height constraint — let keyboard size itself naturally
+     On phones with tall aspect ratio (Realme 13 Pro), all rows fit without scrolling.
+     On shorter screens, reduce individual key sizes via media queries. */
+  
+  /* Prevent scroll unless absolutely necessary (extreme cases only) */
+  overflow-y: hidden;
+  overflow-x: hidden;
   /* NOTE: do NOT use contain:layout style — it clips overflow and hides last row */
 
   /* Slide UP animation — same easing as iOS keyboard */
@@ -697,8 +702,8 @@ input[type="text"]:focus {
 .kbd-sheet-handle-row {
   display: flex;
   align-items: center;
-  padding: 4px 12px 2px; /* tighter handle row */
-  gap: 10px;
+  padding: 2px 8px 1px;              /* reduced from 4px 12px 2px */
+  gap: 8px;
   position: relative;
 }
 .kbd-sheet-handle {
@@ -711,10 +716,11 @@ input[type="text"]:focus {
 .kbd-sheet-dismiss {
   background: rgba(255,255,255,.08);
   border: none;
-  border-radius: 8px;
+  border-radius: 6px;              /* reduced from 8px */
   color: #a0a0cc;
-  font-size: 16px;
-  width: 36px; height: 32px;
+  font-size: 14px;                 /* reduced from 16px */
+  width: 30px;                     /* reduced from 36px */
+  height: 28px;                    /* reduced from 32px */
   flex-shrink: 0;
   display: flex; align-items: center; justify-content: center;
   cursor: pointer;
@@ -725,8 +731,8 @@ input[type="text"]:focus {
 /* Bulk-type row */
 .kbd-sheet-bulk {
   display: flex;
-  gap: 6px;
-  padding: 2px 4px 4px;
+  gap: 4px;                         /* reduced from 6px */
+  padding: 1px 3px 2px;             /* reduced from 2px 4px 4px */
 }
 /* Text display — a <div>, not <input>, so native keyboard NEVER opens */
 .kbd-sheet-text-display {
@@ -735,9 +741,9 @@ input[type="text"]:focus {
   border: 1px solid rgba(255,255,255,.1);
   border-radius: 8px;
   color: #f0f0f8;
-  font-size: 14px;
-  padding: 8px 10px;
-  min-height: 36px;
+  font-size: 12px;                 /* reduced from 14px */
+  padding: 6px 8px;                /* reduced from 8px 10px */
+  min-height: 30px;                /* reduced from 36px */
   overflow: hidden;
   white-space: nowrap;
   display: flex;
@@ -756,9 +762,10 @@ input[type="text"]:focus {
   border: none;
   border-radius: 8px;
   color: #fff;
-  font-size: 13px;
+  font-size: 12px;                 /* reduced from 13px */
   font-weight: 600;
-  padding: 0 14px;
+  padding: 0 12px;                 /* reduced from 14px */
+  height: 30px;                    /* to match text display */
   cursor: pointer;
   flex-shrink: 0;
   touch-action: manipulation;
@@ -772,10 +779,10 @@ input[type="text"]:focus {
   justify-content: center;
   padding: 0;                    /* removed padding to save space */
   flex-wrap: wrap;               /* allow wrapping on extremely narrow screens */
-  min-height: 42px;              /* ensure minimum row height */
+  min-height: 36px;              /* reduced from 42px to match key height */
 }
 
-/* Individual sheet key — bigger for comfortable thumb typing */
+/* Individual sheet key — compact on mobile, comfortable for thumb typing */
 .kbs-key {
   background: #2c2c3e;
   border: 1px solid rgba(255,255,255,.09);
@@ -784,11 +791,11 @@ input[type="text"]:focus {
   color: #e8e8f2;
   cursor: pointer;
   font-family: var(--font-sans);
-  font-size: 16px;
+  font-size: 14px;                 /* reduced from 16px for mobile */
   font-weight: 500;
-  min-width: 21px;                  /* further reduced from 24 to ensure no clipping on right (Backspace) */
-  height: 42px;                  /* shorter to ensure vertical fit */
-  padding: 0 4px;
+  min-width: 20px;                 /* reduced to ensure all keys fit */
+  height: 36px;                    /* reduced from 42px to fit all rows */
+  padding: 0 3px;
   flex: 1;
   display: flex;
   align-items: center;
@@ -798,7 +805,9 @@ input[type="text"]:focus {
   touch-action: manipulation;
   user-select: none;
   -webkit-user-select: none;
-  will-change: transform;        /* pre-allocate GPU layer — no repaint jank */
+  /* will-change REMOVED — pre-promoting 70+ keyboard keys to GPU layers
+     wastes VRAM and thrashes the compositor, even when keyboard is hidden.
+     The 40-60ms transition is fast enough without GPU promotion. */
   /* Prevent Chrome from treating buttons as text inputs */
   -webkit-appearance: none;
   outline: none;
@@ -814,10 +823,10 @@ input[type="text"]:focus {
 .kbs-mod {
   background: #1e1e2e;
   color: var(--text-secondary);
-  font-size: 13px;
+  font-size: 12px;                 /* reduced from 13px */
   flex: 0 0 auto;
-  min-width: 48px;
-  height: 48px;    /* slightly shorter than letter keys */
+  min-width: 44px;                 /* reduced from 48px */
+  height: 36px;                    /* match letter key height */
 }
 .kbs-mod.active {
   background: var(--accent);
@@ -829,26 +838,26 @@ input[type="text"]:focus {
 /* Wide keys: backspace, enter */
 .kbs-wide {
   flex: 0 0 auto;
-  min-width: 48px;                  /* further reduced from 52 to save space for standard keys */
+  min-width: 44px;                  /* reduced to save space */
   background: #1e1e2e;
-  font-size: 15px;
+  font-size: 13px;                  /* reduced from 15px */
 }
 
 /* Space bar */
 .kbs-space {
   flex: 3;
-  font-size: 14px;
+  font-size: 12px;                 /* reduced from 14px */
   color: var(--text-muted);
-  height: 42px;   /* match letter-key height so last row never clips */
+  height: 36px;                    /* match letter-key height */
 }
 
 /* Arrow keys */
 .kbs-arrow {
-  flex: 0 0 44px;
-  font-size: 20px;
+  flex: 0 0 40px;                  /* reduced from 44px */
+  font-size: 18px;                 /* reduced from 20px */
   background: #1e1e2e;
   color: #8888cc;
-  height: 42px;   /* match letter-key height */
+  height: 36px;                    /* match letter-key height */
 }
 
 /* ▲ Persistent keyboard toggle button — floats above the sensitivity slider */
@@ -858,7 +867,7 @@ input[type="text"]:focus {
   bottom: calc(env(safe-area-inset-bottom, 0px) + 52px);
   right: 14px;
   z-index: 40;        /* below the sheet (z:50) so it hides under it naturally */
-  background: rgba(30, 30, 50, 0.85);
+  background: rgba(30, 30, 50, 0.95);
   border: 1px solid rgba(255,255,255,.15);
   border-radius: 10px;
   color: #a0a0cc;
@@ -866,8 +875,8 @@ input[type="text"]:focus {
   padding: 6px 12px;
   cursor: pointer;
   touch-action: manipulation;
-  backdrop-filter: blur(6px);
-  -webkit-backdrop-filter: blur(6px);
+  /* backdrop-filter REMOVED — blur is GPU-expensive and this button
+     is always visible on the touchpad panel, causing constant compositing cost. */
   transition: opacity .15s, transform .1s;
 }
 .kbd-toggle-btn:active {
@@ -937,7 +946,7 @@ input[type="text"]:focus {
   justify-content: center;
   touch-action: manipulation;
   user-select: none;
-  will-change: transform;
+  /* will-change REMOVED — same rationale as .kbs-key above */
   -webkit-tap-highlight-color: transparent;
   transition: background .06s, transform .04s;
 }

@@ -14,6 +14,13 @@
   <link rel="manifest" href="manifest.json" />
   <link rel="stylesheet" href="style.css" />
 
+  <!-- Google Fonts — loaded as <link> instead of CSS @import.
+       @import is render-blocking: the browser cannot parse any CSS below it
+       until the font stylesheet is fully downloaded. <link> loads in parallel. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" />
+
   <!-- xterm.js CDN (used by terminal panel — Phase 3) -->
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" />
 </head>
@@ -116,12 +123,15 @@
   </div>
 
   <!-- Scripts — order matters -->
-  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
-  <script src="panels/touchpad.js"></script>
-  <script src="panels/terminal.js"></script>
-  <script src="panels/widgets.js"></script>
-  <script src="panels/media.js"></script>
-  <script src="app.js"></script>
+  <!-- All scripts deferred — they execute in document order after DOM is parsed.
+       This eliminates render-blocking: the page paints immediately while JS loads in parallel.
+       Order: xterm libs → panels → app (dependency order preserved by defer). -->
+  <script defer src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+  <script defer src="panels/touchpad.js"></script>
+  <script defer src="panels/terminal.js"></script>
+  <script defer src="panels/widgets.js"></script>
+  <script defer src="panels/media.js"></script>
+  <script defer src="app.js"></script>
 </body>
 </html>

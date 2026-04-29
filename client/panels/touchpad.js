@@ -79,8 +79,21 @@
   // Used to absorb the OS event burst after returning from a widget action.
   let _inhibitUntil = 0;
 
+  // Last activity timestamp — detect if touchpad has been inactive
+  let _lastActivityTime = Date.now();
+
   // Drag-lock state: when true, left button is held on the PC
   let _dragLocked = false;
+
+  // Cached touchpad rect — avoids calling getBoundingClientRect() at 120Hz.
+  // Recalculated once on pointerdown; the touchpad never resizes mid-drag.
+  let _cachedRect = null;
+
+  // Pending glow position — written by pointermove, consumed by rAF flush.
+  // Avoids writing style.transform directly in the event handler (skips layout thrash).
+  let _pendingGlowX = 0;
+  let _pendingGlowY = 0;
+  let _glowDirty = false;
 
 
   /** Nuke all accumulator state — clean slate */
@@ -92,6 +105,8 @@
     _scrollAcc = 0;
     _lastPinchDist = 0;
     _pinchAccum = 0;
+    _cachedRect = null;  // force fresh rect on next pointerdown
+    _glowDirty = false;  // discard any pending glow update
   }
 
   // ── rAF-gated flush — ONE send per animation frame (~60/s) ──────
@@ -102,6 +117,12 @@
   // rAF collapses all deltas in a frame into a single send.
   function _flushNow() {
     _rafId = null;
+
+    // ── Update glow position (batched from pointermove) ──
+    if (_glowDirty) {
+      _glowDirty = false;
+      $touchGlow.style.transform = `translate(${_pendingGlowX}px, ${_pendingGlowY}px)`;
+    }
 
     // Math.trunc is correct here — | 0 has identical semantics but looks confusing.
     // We compute the nudge BEFORE truncation so we don't accidentally double-move.
@@ -195,7 +216,7 @@
         position: 'absolute',
         top: '50%', left: '50%',
         transform: 'translate(-50%, -50%)',
-        background: 'rgba(24, 24, 27, 0.75)',
+        background: 'rgba(24, 24, 27, 0.92)',
         border: '1px solid rgba(255,255,255,0.06)',
         color: '#f4f4f5',
         fontSize: '16px',
@@ -204,8 +225,8 @@
         borderRadius: '16px',
         pointerEvents: 'none',
         zIndex: '99',
-        backdropFilter: 'blur(12px)',
-        WebkitBackdropFilter: 'blur(12px)',
+        // backdrop-filter REMOVED — GPU-expensive blur was causing
+        // compositor stalls during pointer events on mid-range phones.
         transition: 'opacity .3s ease',
       });
       $touchpad.appendChild(el);
@@ -230,29 +251,41 @@
     e.preventDefault();
     $touchpad.setPointerCapture(e.pointerId);
 
-    // First touch after a panel switch → reset accumulator to avoid phantom moves
-    // from any stale sub-pixel remainder left over from the previous session.
-    // Only reset on FIRST touch of session (when no pointers are down yet).
-    if (_sessionFirstTouch && _ptrs.size === 0) {
+    const now = Date.now();
+    const timeSinceLastActivity = now - _lastActivityTime;
+    _lastActivityTime = now;
+
+    // If more than 500ms has passed since last pointer activity,
+    // we likely switched panels. Reset everything to avoid stale jitter.
+    if (timeSinceLastActivity > 500 || _sessionFirstTouch) {
       _sessionFirstTouch = false;
       _resetSmoothing();
+      _ptrs.clear();  // clear any stale pointer records
     }
+
+    // Cache the touchpad rect ONCE per touch session.
+    // getBoundingClientRect() forces a synchronous layout recalc — calling it
+    // at 120Hz in pointermove was the #1 cause of lag on mobile.
+    _cachedRect = $touchpad.getBoundingClientRect();
 
     _ptrs.set(e.pointerId, {
       id: e.pointerId,
       x: e.clientX, y: e.clientY,
       startX: e.clientX, startY: e.clientY,
-      startTime: Date.now(),
+      startTime: now,    // reuse cached now — avoid second Date.now() syscall
       primed: false,
     });
 
     // Update touch glow for the primary pointer (first finger down)
     if (_ptrs.size === 1) {
-      const rect = $touchpad.getBoundingClientRect();
-      const tx = e.clientX - rect.left;
-      const ty = e.clientY - rect.top;
-      $touchGlow.style.transform = `translate(${tx}px, ${ty}px)`;
+      const tx = e.clientX - _cachedRect.left;
+      const ty = e.clientY - _cachedRect.top;
+      // Batch glow update into rAF — don't write style directly in event handler
+      _pendingGlowX = tx;
+      _pendingGlowY = ty;
+      _glowDirty = true;
       $touchGlow.classList.add('active');
+      _scheduleFlush();
     }
 
     // Reset gesture state when finger count changes
@@ -267,6 +300,10 @@
     e.preventDefault();
     const prev = _ptrs.get(e.pointerId);
     if (!prev) return;
+
+    // Single Date.now() per event — avoid repeated syscalls at 120Hz
+    const now = Date.now();
+    _lastActivityTime = now;
 
     const rawDx = e.clientX - prev.x;
     const rawDy = e.clientY - prev.y;
@@ -285,15 +322,17 @@
         return;
       }
 
-      // Finger tracking glow update
-      const rect = $touchpad.getBoundingClientRect();
-      const tx = e.clientX - rect.left;
-      const ty = e.clientY - rect.top;
-      $touchGlow.style.transform = `translate(${tx}px, ${ty}px)`;
+      // Finger tracking glow update — batched via rAF, NOT direct style write.
+      // Uses _cachedRect from pointerdown — no getBoundingClientRect() call here.
+      if (_cachedRect) {
+        _pendingGlowX = e.clientX - _cachedRect.left;
+        _pendingGlowY = e.clientY - _cachedRect.top;
+        _glowDirty = true;
+      }
 
       // Single finger → move mouse: accumulate and flush via rAF (~60/s)
       // If in inhibit window, clear accumulators and return to prevent burst release
-      if (Date.now() < _inhibitUntil) {
+      if (now < _inhibitUntil) {
         _resetSmoothing();
         return;  // absorb OS burst after panel switch
       }
@@ -427,6 +466,7 @@
   $touchpad.addEventListener('pointercancel', e => {
     e.preventDefault();
     _ptrs.delete(e.pointerId);
+    _lastActivityTime = Date.now();
     if (_ptrs.size === 0) {
       $touchGlow.classList.remove('active');
       _resetSmoothing();
@@ -758,6 +798,10 @@
   document.getElementById('sens-slider').addEventListener('input', function () {
     CFG.sensitivity = parseFloat(this.value);
     document.getElementById('sens-val').textContent = CFG.sensitivity + '×';
+    // CRITICAL: Reset accumulators when sensitivity changes to prevent jitter
+    // If user is dragging while adjusting slider, stale accumulated values at old
+    // sensitivity multiplier would cause a sudden jump when new multiplier is applied.
+    _resetSmoothing();
   });
 
   // ── Drag Lock (hold left-button for screenshot drag-select) ───
@@ -810,15 +854,18 @@
       _resetSmoothing();
       _gestureTriggered = false;
       _gestureStartPtrs = [];
-      _firstTouch = true;   // ensures first touch after panel switch starts clean
+      _sessionFirstTouch = true;   // ensures first touch after panel switch starts clean
       _hideKeyboard();
       // Release drag lock on panel switch (don't leave button held on PC)
       if (_dragLocked) _setDragLock(false);
-      _inhibitUntil = 0;
+      // Set inhibit for 200ms to absorb OS event burst after panel switch
+      _inhibitUntil = Date.now() + 200;
+      _lastActivityTime = Date.now();
     },
     /** Inhibit pointer-move sends for `ms` milliseconds. Absorbs OS event bursts. */
     inhibit(ms) {
       _inhibitUntil = Date.now() + ms;
+      _lastActivityTime = Date.now();
     },
     showKeyboard:     _showKeyboard,
     hideKeyboard:     _hideKeyboard,
