@@ -259,11 +259,15 @@ input[type="text"]:focus {
    height. env(safe-area-inset-bottom) is populated automatically by Chrome
    when viewport-fit=cover is set in the meta tag. */
 #panel-touchpad {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 .touchpad {
   flex: 1;
+  min-height: 0;
   background: var(--bg-surface);
   margin: 12px 12px 0;
   border-radius: var(--radius-md);
@@ -370,6 +374,17 @@ input[type="text"]:focus {
   cursor: pointer;
   box-shadow: var(--shadow-sm);
   border: 1px solid rgba(255,255,255,.1);
+}
+
+.touchpad-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  padding-bottom: calc(8px + env(safe-area-inset-bottom, 8px));
+  font-size: 12px;
+  color: var(--text-muted);
+  flex-shrink: 0;
 }
 
 /* ── Gesture flash overlay ───────────────────────────────────── */
@@ -682,9 +697,12 @@ input[type="text"]:focus {
      On phones with tall aspect ratio (Realme 13 Pro), all rows fit without scrolling.
      On shorter screens, reduce individual key sizes via media queries. */
   
-  /* Prevent scroll unless absolutely necessary (extreme cases only) */
-  overflow-y: hidden;
+  /* Keep full keyboard reachable on short/odd aspect-ratio devices */
+  max-height: min(72dvh, calc(100% - 6px));
+  overflow-y: auto;
   overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
   /* NOTE: do NOT use contain:layout style — it clips overflow and hides last row */
 
   /* Slide UP animation — same easing as iOS keyboard */

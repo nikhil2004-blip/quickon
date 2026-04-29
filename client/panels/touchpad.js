@@ -795,7 +795,7 @@
   // ── Sensitivity slider (injected into panel) ──────────────────
   const $panel = document.getElementById('panel-touchpad');
   const $sliderRow = document.createElement('div');
-  $sliderRow.style.cssText = 'display:flex;align-items:center;gap:10px;padding:4px 12px;padding-bottom:env(safe-area-inset-bottom,16px);font-size:12px;color:var(--text-muted);flex-shrink:0;';
+  $sliderRow.className = 'touchpad-slider-row';
   $sliderRow.innerHTML = `
     <span>🐢</span>
     <input type="range" id="sens-slider" min="1" max="6" step="0.5" value="${CFG.sensitivity}"
