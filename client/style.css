@@ -667,6 +667,11 @@ input[type="text"]:focus {
   flex-direction: column;
   gap: 3px;
 
+  /* Responsive max-height for different screen sizes and orientations
+     Works on tall narrow phones (Realme 13 Pro) and all other devices.
+     Takes 65% of viewport but leaves at least 120px for other content. */
+  max-height: min(65vh, calc(100vh - 120px));
+
   /* Allow scrolling if content overflows on tiny screens */
   overflow-y: auto;
   /* NOTE: do NOT use contain:layout style — it clips overflow and hides last row */
@@ -766,6 +771,8 @@ input[type="text"]:focus {
   gap: 1px;                      /* ultra-tight gap to fit rows on 360px screens */
   justify-content: center;
   padding: 0;                    /* removed padding to save space */
+  flex-wrap: wrap;               /* allow wrapping on extremely narrow screens */
+  min-height: 42px;              /* ensure minimum row height */
 }
 
 /* Individual sheet key — bigger for comfortable thumb typing */
