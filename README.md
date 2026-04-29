@@ -7,7 +7,7 @@
   [![Made with Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 
   <p>
-    <a href="https://github.com/nikhil2004-blip/quickcon/releases/latest/dist/PocketDeck.exe">
+    <a href="dist/PocketDeck.exe">
       <img src="https://img.shields.io/badge/Download-PocketDeck.exe-2ea44f?style=for-the-badge&logo=windows&logoColor=white" alt="Download PocketDeck.exe" />
     </a>
   </p>
