@@ -2,7 +2,7 @@
  * touchpad.js — Full laptop trackpad emulation
  *
  * Gestures (like HP Victus trackpad):
- *  1 finger drag  → mouse move (with EMA smoothing + sensitivity)
+ *  1 finger drag  → mouse move (batched per frame + sensitivity)
  *  1 finger tap   → left click
  *  2 finger drag  → scroll
  *  2 finger tap   → right click
@@ -13,8 +13,8 @@
  *  4 finger swipe ← → Win+Ctrl+Left  (virtual desktop left)
  *  4 finger swipe → → Win+Ctrl+Right (virtual desktop right)
  *
- * Anti-jitter: EMA low-pass filter + dead zone on raw deltas.
- * Speed: configurable sensitivity multiplier (default 2.5×).
+ * Anti-jitter: per-frame transport batching + deterministic acceleration.
+ * Speed: configurable sensitivity multiplier.
  */
 
 'use strict';
@@ -40,20 +40,9 @@
   };
 
   // ── State ─────────────────────────────────────────────────────
-  /** Map<pointerId, {x, y, startX, startY, startTime, primed}> */
+  /** Map<pointerId, {x, y, startX, startY, startTime}> */
   const _ptrs = new Map();
 
-
-  // Sub-pixel accumulator — keeps fractional remainders between pointermove events
-  let _accDx = 0;
-  let _accDy = 0;
-
-  // EMA smoothed values — low-pass filtered raw deltas
-  let _emaDx = 0;
-  let _emaDy = 0;
-
-  // rAF handle — used to batch mouse moves (one send per frame, ~60/s)
-  let _rafId = null;
 
   // Scroll accumulator
   let _scrollAcc = 0;
@@ -94,19 +83,21 @@
   // Recalculated once on pointerdown; the touchpad never resizes mid-drag.
   let _cachedRect = null;
 
-  // Pending glow position — written by pointermove, consumed by rAF flush.
-  // Avoids writing style.transform directly in the event handler (skips layout thrash).
-  let _pendingGlowX = 0;
-  let _pendingGlowY = 0;
-  let _glowDirty = false;
-
+  // Mouse moves are sent IMMEDIATELY — no rAF batching.
+  // rAF delay (8-16ms per frame) was the primary source of cursor lag.
+  // The WebSocket backpressure guard in app.js handles congestion.
+  //
+  // NOTE: callers MUST coalesce all sub-events of a single pointermove into
+  // ONE _sendMouseMove() call. Multiple sends per pointermove (one per
+  // getCoalescedEvents() entry) was the #1 source of Wi-Fi congestion and
+  // visible cursor lag — JSON.stringify + ws.send() at 4-8× the necessary
+  // rate quickly saturates the WebSocket send buffer on mobile networks.
+  function _sendMouseMove(dx, dy) {
+    PocketDeck.send({ type: 'mouse_move', dx, dy });
+  }
 
   /** Nuke all accumulator state — clean slate */
   function _resetSmoothing() {
-    _accDx = 0;
-    _accDy = 0;
-    _emaDx = 0;
-    _emaDy = 0;
     _scrollAcc = 0;
     _lastPinchDist = 0;
     _pinchAccum = 0;
@@ -115,50 +106,26 @@
     _twoFingerScrollTotal = 0;
     _twoFingerPinchTotal = 0;
     _cachedRect = null;  // force fresh rect on next pointerdown
-    _glowDirty = false;  // discard any pending glow update
   }
 
-  // ── rAF-gated flush — ONE send per animation frame (~60/s) ──────
-  // Pointer events can fire 120+ times/sec on mobile. Without batching,
-  // every event sends a WebSocket message → the Python server queues
-  // hundreds of pynput tasks → cursor lags behind AND mouse_button
-  // release (e.g. screenshot) is buried at the back of that queue.
-  // rAF collapses all deltas in a frame into a single send.
-  function _flushNow() {
-    _rafId = null;
-
-    // ── Update glow position (batched from pointermove) ──
-    if (_glowDirty) {
-      _glowDirty = false;
-      $touchGlow.style.transform = `translate(${_pendingGlowX}px, ${_pendingGlowY}px)`;
-    }
-
-    let sendDx = Math.trunc(_accDx);
-    let sendDy = Math.trunc(_accDy);
-
-    if (sendDx !== 0 || sendDy !== 0) {
-      PocketDeck.send({ type: 'mouse_move', dx: sendDx, dy: sendDy });
-      // Subtract only the integer part that was sent; keep sub-pixel remainder
-      _accDx -= sendDx;
-      _accDy -= sendDy;
-    }
-  }
-
-  function _scheduleFlush() {
-    if (_rafId === null) {
-      _rafId = requestAnimationFrame(_flushNow);
-    }
-  }
-
-  // ── Filter pipeline ──────────────────────────────────────────────────────
-  // Removed heavy EMA and deadzone: mobile touchscreens are already hardware-filtered.
-  // Passing smoothed values messes with Windows' native 'Enhance Pointer Precision',
-  // causing "floaty" lag and initial jitter.
+  // ── Filter pipeline & Client-Side Acceleration ───────────────────────────
+  // Acceleration is applied ONCE on the total per-frame delta (sum of all
+  // coalesced sub-events). Applying it per-sub-event made the same finger
+  // motion produce different cursor distances depending on Chrome's
+  // coalescing rate — which is exactly what the user perceived as jitter.
+  // Distance-based gain keeps slow motion 1:1 (precise targeting) and only
+  // accelerates on fast flicks.
   const _filterResult = { dx: 0, dy: 0 };
   function _filterDelta(rawDx, rawDy) {
-    // Just apply sensitivity directly to pass raw velocity to the OS
-    _filterResult.dx = rawDx * CFG.sensitivity;
-    _filterResult.dy = rawDy * CFG.sensitivity;
+    const dist = Math.sqrt(rawDx * rawDx + rawDy * rawDy);
+    let multiplier = CFG.sensitivity;
+
+    if (dist > 4) {
+      multiplier += Math.min((dist - 4) * 0.08, 1.4);
+    }
+
+    _filterResult.dx = rawDx * multiplier;
+    _filterResult.dy = rawDy * multiplier;
     return _filterResult;
   }
 
@@ -248,9 +215,10 @@
     const timeSinceLastActivity = now - _lastActivityTime;
     _lastActivityTime = now;
 
-    // If more than 500ms has passed since last pointer activity,
-    // we likely switched panels. Reset everything to avoid stale jitter.
-    if (timeSinceLastActivity > 500 || _sessionFirstTouch) {
+    // If more than 2000ms has passed since last pointer activity,
+    // the user likely switched panels or paused a long time. Reset to avoid
+    // stale scroll/pinch state. 2000ms is permissive enough for slow movement.
+    if (timeSinceLastActivity > 2000 || _sessionFirstTouch) {
       _sessionFirstTouch = false;
       _resetSmoothing();
       _ptrs.clear();  // clear any stale pointer records
@@ -266,19 +234,14 @@
       x: e.clientX, y: e.clientY,
       startX: e.clientX, startY: e.clientY,
       startTime: now,    // reuse cached now — avoid second Date.now() syscall
-      primed: false,
     });
 
     // Update touch glow for the primary pointer (first finger down)
     if (_ptrs.size === 1) {
       const tx = e.clientX - _cachedRect.left;
       const ty = e.clientY - _cachedRect.top;
-      // Batch glow update into rAF — don't write style directly in event handler
-      _pendingGlowX = tx;
-      _pendingGlowY = ty;
-      _glowDirty = true;
+      $touchGlow.style.transform = `translate(${tx}px, ${ty}px)`;
       $touchGlow.classList.add('active');
-      _scheduleFlush();
     }
 
     // Reset gesture state when finger count changes
@@ -294,119 +257,123 @@
     const prev = _ptrs.get(e.pointerId);
     if (!prev) return;
 
-    // Single Date.now() per event — avoid repeated syscalls at 120Hz
     const now = Date.now();
     _lastActivityTime = now;
-
-    const rawDx = e.clientX - prev.x;
-    const rawDy = e.clientY - prev.y;
-
-    // Mutate in place — avoids a heap allocation + spread copy on every move event
-    prev.x = e.clientX;
-    prev.y = e.clientY;
 
     const count = _ptrs.size;
 
     if (count === 1) {
-      // The first move sample after pointerdown is often a noisy jump on mobile.
-      // Skip it to avoid the startup jitter burst.
-      if (!prev.primed) {
-        prev.primed = true;
-        return;
+      // ── Use getCoalescedEvents() for full-resolution tracking ──
+      // Chrome coalesces pointermove events to ~60Hz. During fast movement
+      // the device touch sensor runs at 120-240Hz — those intermediate
+      // samples are hidden inside the coalesced event list. We walk them
+      // to compute the EXACT total finger displacement for this frame, then
+      // emit a SINGLE WebSocket message. Sending one packet per pointermove
+      // (rather than one per sub-event) cut Wi-Fi bandwidth by 4-8× and
+      // eliminated the backpressure-induced cursor stalls.
+      if (now >= _inhibitUntil) {
+        const coalesced = e.getCoalescedEvents ? e.getCoalescedEvents() : null;
+        const events = (coalesced && coalesced.length > 0) ? coalesced : [e];
+
+        let sumDx = 0;
+        let sumDy = 0;
+        let lastX = prev.x;
+        let lastY = prev.y;
+
+        for (let i = 0; i < events.length; i++) {
+          const ce = events[i];
+          sumDx += ce.clientX - lastX;
+          sumDy += ce.clientY - lastY;
+          lastX = ce.clientX;
+          lastY = ce.clientY;
+        }
+
+        prev.x = lastX;
+        prev.y = lastY;
+
+        if (sumDx !== 0 || sumDy !== 0) {
+          // Acceleration applied ONCE on the total — consistent feel
+          // regardless of coalescing rate (the source of visible jitter).
+          const { dx, dy } = _filterDelta(sumDx, sumDy);
+          _sendMouseMove(dx, dy);
+        }
+      } else {
+        // Inhibited (panel-switch burst absorption): just update prev so
+        // the very next non-inhibited move computes a correct delta.
+        prev.x = e.clientX;
+        prev.y = e.clientY;
       }
 
-      // Finger tracking glow update — batched via rAF, NOT direct style write.
-      // Uses _cachedRect from pointerdown — no getBoundingClientRect() call here.
+      // Glow tracks the final position (compositor-only transform, safe)
       if (_cachedRect) {
-        _pendingGlowX = e.clientX - _cachedRect.left;
-        _pendingGlowY = e.clientY - _cachedRect.top;
-        _glowDirty = true;
+        const tx = e.clientX - _cachedRect.left;
+        const ty = e.clientY - _cachedRect.top;
+        $touchGlow.style.transform = `translate(${tx}px, ${ty}px)`;
       }
-
-      // Single finger → move mouse: accumulate and flush via rAF (~60/s)
-      // If in inhibit window, clear accumulators and return to prevent burst release
-      if (now < _inhibitUntil) {
-        _accDx = 0;
-        _accDy = 0;
-        return;  // absorb OS burst after panel switch
-      }
-      const { dx, dy } = _filterDelta(rawDx, rawDy);
-      _accDx += dx;
-      _accDy += dy;
-      _scheduleFlush();  // batches all moves in this frame into one send
 
     } else if (count === 2) {
-      // ─────────────────────────────────────────────────────────────
-      // Two-Finger Gesture: Disambiguate Scroll vs Pinch-Zoom
-      // ─────────────────────────────────────────────────────────────
-      
+      // ── Two-Finger: Scroll vs Pinch-Zoom ──────────────────────
+      const rawDx = e.clientX - prev.x;
+      const rawDy = e.clientY - prev.y;
+      prev.x = e.clientX;
+      prev.y = e.clientY;
+
       const currDist = _calcPinchDistance(_ptrs);
       _twoFingerSamples++;
-      
+
       if (_twoFingerSamples === 1) {
-        // First sample, just initialize distance
         _lastPinchDist = currDist;
       } else {
         const distDelta = currDist - _lastPinchDist;
         const absDistDelta = Math.abs(distDelta);
-        const absScrollDelta = Math.abs(rawDy) + Math.abs(rawDx); // approximate parallel movement
-        
+        const absScrollDelta = Math.abs(rawDy) + Math.abs(rawDx);
+
         _twoFingerPinchTotal += absDistDelta;
         _twoFingerScrollTotal += absScrollDelta;
 
-        // Determine mode if not decided yet, after 3 samples or if a threshold is crossed
         if (_twoFingerMode === 'undecided') {
           if (_twoFingerSamples > 3 || _twoFingerPinchTotal > 10 || _twoFingerScrollTotal > 10) {
-            // Compare total movement to classify
-            if (_twoFingerPinchTotal > _twoFingerScrollTotal * 1.5) {
-              _twoFingerMode = 'pinch';
-            } else {
-              _twoFingerMode = 'scroll';
-            }
+            _twoFingerMode = (_twoFingerPinchTotal > _twoFingerScrollTotal * 1.5) ? 'pinch' : 'scroll';
           }
         }
 
-        // Execute based on decided mode
         if (_twoFingerMode === 'scroll' || (_twoFingerMode === 'undecided' && _twoFingerScrollTotal > _twoFingerPinchTotal)) {
-          // --- SCROLLING ---
-          // Negate rawDy to invert scroll (drag UP = negative dy = negative scroll = scroll UP)
-          _scrollAcc += -rawDy; 
-          
-          if (Math.abs(_scrollAcc) >= 5) {
-            const clicks = Math.round(_scrollAcc / (5 / CFG.scrollRatio));
+          // Scroll — integer-only accumulator to prevent floating-point drift.
+          // Each "click" = SCROLL_STEP raw pixels of finger movement.
+          _scrollAcc += -rawDy;
+          const SCROLL_STEP = 3;
+          const clicks = Math.trunc(_scrollAcc / SCROLL_STEP);
+          if (clicks !== 0) {
             PocketDeck.send({ type: 'mouse_scroll', dx: 0, dy: clicks });
-            _scrollAcc -= clicks * (5 / CFG.scrollRatio);
+            _scrollAcc -= clicks * SCROLL_STEP;
           }
-        } 
+        }
         else if (_twoFingerMode === 'pinch' || (_twoFingerMode === 'undecided' && _twoFingerPinchTotal > _twoFingerScrollTotal)) {
-          // --- PINCH ZOOM ---
           _pinchAccum += distDelta;
-
-          // Threshold for zoom step
-          const PINCH_THRESHOLD = 25; 
-          
+          const PINCH_THRESHOLD = 25;
           if (Math.abs(_pinchAccum) >= PINCH_THRESHOLD) {
             const zoomDirection = _pinchAccum > 0 ? 'ctrl+=' : 'ctrl+-';
             const zoomSteps = Math.floor(Math.abs(_pinchAccum) / PINCH_THRESHOLD);
             for (let i = 0; i < zoomSteps; i++) {
               PocketDeck.send({ type: 'key_tap', key: zoomDirection });
             }
-            // Keep remainder
-            _pinchAccum = _pinchAccum % PINCH_THRESHOLD; 
+            _pinchAccum = _pinchAccum % PINCH_THRESHOLD;
           }
         }
-        
+
         _lastPinchDist = currDist;
       }
 
     } else if (count >= 3 && !_gestureTriggered) {
-      // Multi-finger gesture detection
-      // Use the average centroid movement across all pointers
+      const rawDx = e.clientX - prev.x;
+      const rawDy = e.clientY - prev.y;
+      prev.x = e.clientX;
+      prev.y = e.clientY;
+
       const allPtrs = Array.from(_ptrs.values());
       const avgX = allPtrs.reduce((s, p) => s + p.x, 0) / allPtrs.length;
       const avgY = allPtrs.reduce((s, p) => s + p.y, 0) / allPtrs.length;
 
-      // Compare against centroid at gesture start
       if (_gestureStartPtrs.length >= count) {
         const startAvgX = _gestureStartPtrs.reduce((s, p) => s + p.startX, 0) / _gestureStartPtrs.length;
         const startAvgY = _gestureStartPtrs.reduce((s, p) => s + p.startY, 0) / _gestureStartPtrs.length;
@@ -824,10 +791,12 @@
   document.getElementById('sens-slider').addEventListener('input', function () {
     CFG.sensitivity = parseFloat(this.value);
     document.getElementById('sens-val').textContent = CFG.sensitivity + '×';
-    // CRITICAL: Reset accumulators when sensitivity changes to prevent jitter
-    // If user is dragging while adjusting slider, stale accumulated values at old
-    // sensitivity multiplier would cause a sudden jump when new multiplier is applied.
-    _resetSmoothing();
+    // Only reset scroll accumulator — NOT _cachedRect or pointer state.
+    // _resetSmoothing() was clearing _cachedRect which forced a synchronous
+    // getBoundingClientRect() on the next pointerdown, and clearing _scrollAcc
+    // mid-scroll caused a visible jump. The sensitivity multiplier is applied
+    // fresh on each delta, so no stale state can accumulate.
+    _scrollAcc = 0;
   });
 
   // ── Drag Lock (hold left-button for screenshot drag-select) ───
@@ -874,7 +843,6 @@
   // ── Public API ────────────────────────────────────────────────
   window.TouchpadPanel = {
     reset() {
-      if (_rafId !== null) { cancelAnimationFrame(_rafId); _rafId = null; }
       _ptrs.forEach((_, id) => { try { $touchpad.releasePointerCapture(id); } catch (_) { } });
       _ptrs.clear();
       _resetSmoothing();
@@ -884,8 +852,10 @@
       _hideKeyboard();
       // Release drag lock on panel switch (don't leave button held on PC)
       if (_dragLocked) _setDragLock(false);
-      // Set inhibit for 200ms to absorb OS event burst after panel switch
-      _inhibitUntil = Date.now() + 200;
+      // inhibit is set by app.js immediately after calling reset() — don't
+      // set it here to 200ms because app.js overrides it to 50ms anyway,
+      // and having TWO calls to Date.now() is a waste.
+      _inhibitUntil = Date.now() + 50;
       _lastActivityTime = Date.now();
     },
     /** Inhibit pointer-move sends for `ms` milliseconds. Absorbs OS event bursts. */

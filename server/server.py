@@ -85,7 +85,8 @@ from utils.auth import generate_token, validate_token
 from utils.network import get_local_ips, get_os_name
 from utils.qr import print_startup_banner
 from handlers.mouse import (
-    handle_mouse_move, handle_mouse_click, handle_mouse_scroll, handle_mouse_button
+    handle_mouse_move, handle_mouse_click, handle_mouse_scroll, handle_mouse_button,
+    reseed_cursor, queue_mouse_move, queue_mouse_scroll
 )
 from handlers.keyboard import handle_key_tap, handle_key_down, handle_key_up, handle_text_type
 from handlers.widgets import load_widgets, get_widget_list_payload, run_widget
@@ -126,20 +127,34 @@ def _ensure_terminal_session(ws: WebSocketServerProtocol):
 
 # Thread pool for blocking syscalls (SendInput, pynput) so they don't stall the event loop.
 #
-# IMPORTANT — two separate executors:
-#   _move_executor  (1 worker)  — mouse_move only.  Single-threaded so that
-#       SendInput calls are always serialized; a 4-worker pool lets concurrent
-#       calls race and arrive OUT OF ORDER at the OS → cursor jitter.
-#   _input_executor (2 workers) — everything else (clicks, keyboard, scroll).
+# IMPORTANT — _input_executor (2 workers) — everything else (clicks, keyboard, scroll).
 #       2 workers = click and keyboard can run concurrently without blocking each
 #       other, but never pile up behind a backlog of in-flight mouse moves.
-_move_executor  = ThreadPoolExecutor(max_workers=1, thread_name_prefix="move")
+# NOTE: mouse_move has its own dedicated accumulator thread in handlers/mouse.py 
+#       to prevent infinitely growing backlog queues.
 _input_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="input")
 
 
 # ══════════════════════════════════════════════════════════════
 # WebSocket handler
 # ══════════════════════════════════════════════════════════════
+
+def _disable_nagle(ws: WebSocketServerProtocol) -> None:
+    """
+    Force TCP_NODELAY on the accepted socket.
+
+    Without this, Nagle's algorithm may hold a small mouse_move frame
+    on the kernel send buffer for up to 40ms (the standard Nagle delay)
+    waiting for more data to coalesce. On a busy Wi-Fi link that is the
+    single largest avoidable latency in the input pipeline.
+    """
+    try:
+        sock = ws.transport.get_extra_info("socket")
+        if sock is not None:
+            sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+    except (AttributeError, OSError):
+        logger.debug("Failed to set TCP_NODELAY", exc_info=True)
+
 
 async def handle_connection(ws: WebSocketServerProtocol) -> None:
     """
@@ -151,6 +166,7 @@ async def handle_connection(ws: WebSocketServerProtocol) -> None:
     """
     client_addr = ws.remote_address
     logger.info(f"Client connected: {client_addr}")
+    _disable_nagle(ws)
 
     # ── Phase 1: Authentication ────────────────────────────────
     try:
@@ -185,6 +201,7 @@ async def handle_connection(ws: WebSocketServerProtocol) -> None:
     logger.info(f"Authenticated: {client_addr}")
     _detach_console_after_connect()
     await ws.send(json.dumps({"type": "auth_ok"}))
+    reseed_cursor() 
 
     # Send server_info
     await ws.send(json.dumps({
@@ -213,6 +230,36 @@ async def handle_connection(ws: WebSocketServerProtocol) -> None:
 
 async def _dispatch(ws: WebSocketServerProtocol, raw: str) -> None:
     """Route a single JSON message to the correct handler."""
+
+    # ── FAST PATH: mouse_move ──────────────────────────────────
+    # mouse_move is by far the most frequent message (120-240Hz). Bypass the
+    # full json.loads() — string scan is ~5× faster and avoids GC pressure.
+    # Falls back to the normal path on any parse failure so it stays robust
+    # to future schema changes.
+    if raw.startswith('{"type":"mouse_move"'):
+        try:
+            dx_idx = raw.find('"dx":', 20)
+            dy_idx = raw.find('"dy":', 20)
+            if dx_idx != -1 and dy_idx != -1:
+                # End of dx value: next ',' or '}' after dx_idx+5.
+                dx_start = dx_idx + 5
+                dx_end = raw.find(',', dx_start)
+                if dx_end == -1:
+                    dx_end = raw.find('}', dx_start)
+                # End of dy value: next ',' or '}' after dy_idx+5.
+                dy_start = dy_idx + 5
+                dy_end = raw.find(',', dy_start)
+                if dy_end == -1:
+                    dy_end = raw.find('}', dy_start)
+                dx = float(raw[dx_start:dx_end])
+                dy = float(raw[dy_start:dy_end])
+                queue_mouse_move(dx, dy)
+                return
+        except (ValueError, IndexError):
+            pass
+        # Fall through to json.loads() on any parse failure.
+
+    # ── Normal path for all other messages ─────────────────────
     try:
         msg = json.loads(raw)
     except json.JSONDecodeError:
@@ -224,21 +271,16 @@ async def _dispatch(ws: WebSocketServerProtocol, raw: str) -> None:
     # ── Mouse ──────────────────────────────────────────────────
     # Run ALL mouse/keyboard calls in the thread-pool so blocking Win32
     # syscalls (SendInput) never stall the asyncio event loop.
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     if t == "mouse_move":
-        # mouse_move MUST use the single-worker executor to stay ordered.
-        # Concurrent SendInput(MOUSEEVENTF_MOVE) calls from multiple threads
-        # race inside Windows and can deliver deltas out of sequence → jitter.
-        loop.run_in_executor(_move_executor, handle_mouse_move,
-                             msg.get("dx", 0), msg.get("dy", 0))
+        queue_mouse_move(msg.get("dx", 0), msg.get("dy", 0))
 
     elif t == "mouse_click":
         loop.run_in_executor(_input_executor, handle_mouse_click,
                              msg.get("button", "left"), msg.get("double", False))
 
     elif t == "mouse_scroll":
-        loop.run_in_executor(_input_executor, handle_mouse_scroll,
-                             msg.get("dx", 0), msg.get("dy", 0))
+        queue_mouse_scroll(msg.get("dx", 0), msg.get("dy", 0))
 
     elif t == "mouse_button":
         # Independent press/release — used for drag-lock (screenshot selection etc.)

@@ -231,8 +231,7 @@
     },
   };
 
-  document.addEventListener('DOMContentLoaded', () => {
-    setTimeout(initTerminal, 100);
-  });
+  // Initialize lazily from fit()/write()/terminal tab activation. Eager xterm
+  // startup adds DOM work and a cursor-blink timer while the touchpad is active.
 
 })();

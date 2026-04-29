@@ -21,11 +21,9 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600&family=Space+Grotesk:wght@400;500;600;700&display=swap" />
 
-  <!-- xterm.js CDN (used by terminal panel — Phase 3) -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" />
-  
-  <!-- Phosphor Icons -->
-  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  <!-- xterm.js CSS is only needed after opening the terminal panel; load it without blocking first paint. -->
+  <link rel="preload" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'" />
+  <noscript><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css" /></noscript>
 </head>
 <body>
   <!-- ═══════════════════════════════════════════
@@ -125,16 +123,13 @@
     </main>
   </div>
 
-  <!-- Scripts — order matters -->
-  <!-- All scripts deferred — they execute in document order after DOM is parsed.
-       This eliminates render-blocking: the page paints immediately while JS loads in parallel.
-       Order: xterm libs → panels → app (dependency order preserved by defer). -->
-  <script defer src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
-  <script defer src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+  <!-- Scripts — order matters. Critical touchpad/app code loads before terminal CDN assets. -->
   <script defer src="panels/touchpad.js"></script>
-  <script defer src="panels/terminal.js"></script>
   <script defer src="panels/widgets.js"></script>
   <script defer src="panels/media.js"></script>
   <script defer src="app.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+  <script defer src="panels/terminal.js"></script>
 </body>
 </html>

@@ -218,11 +218,13 @@ function _updateAppIndicator(online) {
 
 // ── Panel tab switching ──────────────────────────────────────────────
 document.querySelectorAll('.tab').forEach(tab => {
-  tab.addEventListener('click', () => {
+  tab.addEventListener('pointerdown', e => {
+    e.preventDefault();
     const panelId = tab.dataset.panel;
 
     // Track which panel we're leaving
     const leavingPanel = document.querySelector('.tab.active')?.dataset.panel;
+    if (leavingPanel === panelId) return;
 
     document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
     document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
@@ -262,6 +264,13 @@ document.querySelectorAll('.tab').forEach(tab => {
     if (panelId === 'touchpad' && window.TouchpadPanel) {
       if (TouchpadPanel.reset) TouchpadPanel.reset();
       if (TouchpadPanel.inhibit) TouchpadPanel.inhibit(50);
+    }
+  }, { passive: false });
+
+  tab.addEventListener('click', e => {
+    e.preventDefault();
+    if (e.detail === 0) {
+      tab.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true }));
     }
   });
 });
