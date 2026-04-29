@@ -5,8 +5,8 @@ echo ========================================================
 
 echo.
 echo Installing requirements including PyInstaller...
-pip install -r requirements.txt
-pip install pyinstaller
+.venv\Scripts\pip install -r server\requirements.txt
+.venv\Scripts\pip install pyinstaller
 
 echo.
 echo Building executable...
@@ -15,7 +15,7 @@ REM --onefile: Create a single executable
 REM --add-data: Include the client folder and server folder structure
 REM --name: Set the output executable name
 REM --noconsole: Run in background with no terminal window
-pyinstaller --noconfirm --onefile --noconsole --icon app.ico --add-data "client;client" --add-data "server;server" --add-data "assets;assets" --add-data "app.ico;." --name PocketDeck server/server.py
+.venv\Scripts\pyinstaller --noconfirm --onefile --noconsole --icon app.ico --add-data "client;client" --add-data "server;server" --add-data "assets;assets" --add-data "app.ico;." --name PocketDeck server/server.py
 
 echo.
 echo ========================================================

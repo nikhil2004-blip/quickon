@@ -2,76 +2,75 @@ widgets:
 
   # ── Dev Tools ─────────────────────────────────────────────────────────────
   - id: open-terminal
-    label: "New Terminal"
-    icon: "💻"
+    label: "Terminal"
+    icon: "<i class='ph ph-terminal-window'></i>"
     color: "#0ea5e9"
     actions:
       - type: shell
-        command: "start powershell"
+        command: "start wt"  # Opens Windows Terminal instead of old PowerShell
 
-  - id: open-vscode
-    label: "VS Code"
-    icon: "📝"
+  - id: open-antigravity
+    label: "Antigravity"
+    icon: "<i class='ph ph-planet'></i>"
     color: "#0066b8"
     actions:
-      - type: launch
-        app: "code"
-        args: ["."]
+      - type: shell
+        command: "antigravity . || code ."
 
-  - id: start-dev-environment
-    label: "Dev Server"
-    icon: "🚀"
+  - id: start-day
+    label: "Start Day"
+    icon: "<i class='ph ph-rocket-launch'></i>"
     color: "#8b5cf6"
     actions:
       - type: browser
-        url: "https://chatgpt.com"
-      - type: browser
         url: "https://claude.ai"
+      - type: browser
+        url: "https://github.com"
       - type: delay
         ms: 800
-      - type: launch
-        app: "code"
-        args: ["."]
       - type: shell
-        command: "start powershell"
+        command: "antigravity . || code ."
+      - type: shell
+        command: "start wt"
 
   # ── System ────────────────────────────────────────────────────────────────
   - id: lock-pc
     label: "Lock PC"
-    icon: "🔒"
+    icon: "<i class='ph ph-lock-key'></i>"
     color: "#ef4444"
     actions:
       - type: lock
 
-  - id: show-desktop
-    label: "Show Desktop"
-    icon: "🖥️"
-    color: "#10b981"
-    actions:
-      - type: keypress
-        key: "win+d"
-
   - id: task-manager
     label: "Task Mgr"
-    icon: "📊"
+    icon: "<i class='ph ph-chart-bar'></i>"
     color: "#f59e0b"
     actions:
       - type: keypress
         key: "ctrl+shift+esc"
 
-  # ── Windows ───────────────────────────────────────────────────────────────
+  - id: empty-recycle
+    label: "Clean Bin"
+    icon: "<i class='ph ph-trash'></i>"
+    color: "#6b7280"
+    actions:
+      - type: shell
+        command: "powershell -command \"Clear-RecycleBin -Force\""
+
+  # ── Capture ───────────────────────────────────────────────────────────────
   - id: open-screenshot
     label: "Screenshot"
-    icon: "📷"
+    icon: "<i class='ph ph-camera'></i>"
     color: "#6366f1"
     actions:
       - type: keypress
         key: "win+shift+s"
 
+
   # ── Browser ───────────────────────────────────────────────────────────────
   - id: open-chatgpt
     label: "ChatGPT"
-    icon: "🤖"
+    icon: "<i class='ph ph-robot'></i>"
     color: "#10a37f"
     actions:
       - type: browser
@@ -79,8 +78,34 @@ widgets:
 
   - id: open-claude
     label: "Claude"
-    icon: "✨"
+    icon: "<i class='ph ph-sparkle'></i>"
     color: "#d97706"
     actions:
       - type: browser
         url: "https://claude.ai"
+
+  # ── Quick Utils ───────────────────────────────────────────────────────────
+  - id: sleep-pc
+    label: "Sleep"
+    icon: "<i class='ph ph-moon'></i>"
+    color: "#334155"
+    actions:
+      - type: shell
+        command: "rundll32.exe powrprof.dll,SetSuspendState 0,1,0"
+
+  - id: restart-explorer
+    label: "Refresh explorer"
+    icon: "<i class='ph ph-wrench'></i>"
+    color: "#dc2626"
+    actions:
+      - type: shell
+        command: "powershell -command \"Stop-Process -Name explorer -Force; Start-Process explorer\""
+        # Restarts Windows Explorer — fixes frozen taskbar/desktop instantly
+
+  - id: open-github
+    label: "GitHub"
+    icon: "<i class='ph ph-github-logo'></i>"
+    color: "#24292e"
+    actions:
+      - type: browser
+        url: "https://github.com"

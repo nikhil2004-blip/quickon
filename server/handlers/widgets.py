@@ -145,7 +145,10 @@ def _launch_app(app: str, args: list[str]) -> None:
     try:
         if _sys == "Windows":
             if args:
-                subprocess.Popen([app] + list(args), shell=True,
+                # On Windows with shell=True, passing a list ignores the arguments. 
+                # We must build a single command string.
+                cmd_str = f"{app} " + " ".join(f'"{arg}"' if " " in arg else arg for arg in args)
+                subprocess.Popen(cmd_str, shell=True,
                                  creationflags=subprocess.CREATE_NEW_CONSOLE)
             else:
                 subprocess.Popen(app, shell=True,
