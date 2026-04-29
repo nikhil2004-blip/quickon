@@ -14,11 +14,11 @@ Everything runs on your local network (LAN), no cloud relay.
 
 ## Features
 
-- `icon: "<i class='ph ph-hand-swipe-right'></i>"` Touchpad with gestures and smooth cursor control
-- `icon: "<i class='ph ph-keyboard'></i>"` On-screen keyboard with modifier keys (`Ctrl`, `Alt`, `Shift`, `Win`)
-- `icon: "<i class='ph ph-terminal-window'></i>"` Terminal streaming from your Windows machine
-- `icon: "<i class='ph ph-rocket-launch'></i>"` Widget automation via `server/widgets.yaml`
-- `icon: "<i class='ph ph-music-notes'></i>"` Media controls
+- Touchpad with gestures and smooth cursor control (`ph ph-hand-swipe-right`)
+- On-screen keyboard with modifier keys (`Ctrl`, `Alt`, `Shift`, `Win`) (`ph ph-keyboard`)
+- Terminal streaming from your Windows machine (`ph ph-terminal-window`)
+- Widget automation via `server/widgets.yaml` (`ph ph-rocket-launch`)
+- Media controls (`ph ph-music-notes`)
 
 ---
 
