@@ -59,14 +59,16 @@ if _IS_WINDOWS:
     MOUSE_HWHEEL     = 0x1000
     INPUT_MOUSE = 0
 
+    _EXTRA_INFO = ctypes.pointer(ctypes.c_ulong(0))
+
     def _send_mouse(flags: int, dx: int = 0, dy: int = 0, data: int = 0) -> None:
         inp = INPUT(type=INPUT_MOUSE)
         inp.mi.dx        = dx
         inp.mi.dy        = dy
-        inp.mi.mouseData = ctypes.c_ulong(data).value
+        inp.mi.mouseData = data
         inp.mi.dwFlags   = flags
         inp.mi.time      = 0
-        inp.mi.dwExtraInfo = ctypes.pointer(ctypes.c_ulong(0))
+        inp.mi.dwExtraInfo = _EXTRA_INFO
         _SendInput(1, ctypes.byref(inp), ctypes.sizeof(INPUT))
 
 # ── pynput fallback ───────────────────────────────────────────────────────────

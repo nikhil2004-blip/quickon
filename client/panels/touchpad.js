@@ -31,9 +31,7 @@
 
   // ── Config ────────────────────────────────────────────────────
   const CFG = {
-    sensitivity: 1.5,   // px multiplier — reduced to prevent jitter amplification
-    deadZonePx: 0.8,   // raw delta below this = ignore — lowered to allow precise slow movements
-    emaAlpha: 0.75,    // EMA smoothing factor (0.75 = 75% new, 25% previous) — higher = more responsive to slow inputs
+    sensitivity: 1.5,   // px multiplier
     tapMaxMovePx: 12,    // max movement to count as a tap
     tapMaxMs: 300,   // max duration for a tap
     scrollRatio: 2.0,   // scroll sensitivity
@@ -63,6 +61,13 @@
   // Pinch zoom tracking: distance between two fingers
   let _lastPinchDist = 0;
   let _pinchAccum = 0;
+
+  // Two-finger gesture mode: 'undecided' | 'scroll' | 'pinch'
+  // Once decided, stays locked until all fingers lift.
+  let _twoFingerMode = 'undecided';
+  let _twoFingerSamples = 0;         // how many move events since 2 fingers landed
+  let _twoFingerScrollTotal = 0;     // accumulated absolute parallel movement
+  let _twoFingerPinchTotal = 0;      // accumulated absolute pinch distance change
 
   // Gesture tracking
   let _gestureStartPtrs = [];
@@ -105,6 +110,10 @@
     _scrollAcc = 0;
     _lastPinchDist = 0;
     _pinchAccum = 0;
+    _twoFingerMode = 'undecided';
+    _twoFingerSamples = 0;
+    _twoFingerScrollTotal = 0;
+    _twoFingerPinchTotal = 0;
     _cachedRect = null;  // force fresh rect on next pointerdown
     _glowDirty = false;  // discard any pending glow update
   }
@@ -124,14 +133,8 @@
       $touchGlow.style.transform = `translate(${_pendingGlowX}px, ${_pendingGlowY}px)`;
     }
 
-    // Math.trunc is correct here — | 0 has identical semantics but looks confusing.
-    // We compute the nudge BEFORE truncation so we don't accidentally double-move.
-    let sendDx = _accDx >= 0 ? Math.floor(_accDx) : Math.ceil(_accDx);
-    let sendDy = _accDy >= 0 ? Math.floor(_accDy) : Math.ceil(_accDy);
-
-    // Nudge sub-pixel remainders ≥0.5 so very slow drags still register
-    if (sendDx === 0 && Math.abs(_accDx) >= 0.5) sendDx = _accDx > 0 ? 1 : -1;
-    if (sendDy === 0 && Math.abs(_accDy) >= 0.5) sendDy = _accDy > 0 ? 1 : -1;
+    let sendDx = Math.trunc(_accDx);
+    let sendDy = Math.trunc(_accDy);
 
     if (sendDx !== 0 || sendDy !== 0) {
       PocketDeck.send({ type: 'mouse_move', dx: sendDx, dy: sendDy });
@@ -147,25 +150,15 @@
     }
   }
 
-  // ── Filter pipeline: dead-zone → EMA smoothing → sensitivity ───────────
-  // Zero-allocation version: writes into a reused result object instead of
-  // creating a new { dx, dy } on every pointermove event (120+ Hz on mobile).
-  // Avoids GC pressure that causes periodic micro-jitter on mid-range phones.
+  // ── Filter pipeline ──────────────────────────────────────────────────────
+  // Removed heavy EMA and deadzone: mobile touchscreens are already hardware-filtered.
+  // Passing smoothed values messes with Windows' native 'Enhance Pointer Precision',
+  // causing "floaty" lag and initial jitter.
   const _filterResult = { dx: 0, dy: 0 };
   function _filterDelta(rawDx, rawDy) {
-    // Step 1: Dead-zone filter — ignore micro-movements below threshold
-    const deadDx = Math.abs(rawDx) < CFG.deadZonePx ? 0 : rawDx;
-    const deadDy = Math.abs(rawDy) < CFG.deadZonePx ? 0 : rawDy;
-
-    // Step 2: EMA low-pass smoothing (exponential moving average)
-    // Filters jitter while preserving fast intentional movements
-    // Lower alpha = more smoothing; higher alpha = more responsive
-    _emaDx = _emaDx * (1 - CFG.emaAlpha) + deadDx * CFG.emaAlpha;
-    _emaDy = _emaDy * (1 - CFG.emaAlpha) + deadDy * CFG.emaAlpha;
-
-    // Step 3: Apply sensitivity AFTER smoothing (prevents jitter amplification)
-    _filterResult.dx = _emaDx * CFG.sensitivity;
-    _filterResult.dy = _emaDy * CFG.sensitivity;
+    // Just apply sensitivity directly to pass raw velocity to the OS
+    _filterResult.dx = rawDx * CFG.sensitivity;
+    _filterResult.dy = rawDy * CFG.sensitivity;
     return _filterResult;
   }
 
@@ -333,7 +326,8 @@
       // Single finger → move mouse: accumulate and flush via rAF (~60/s)
       // If in inhibit window, clear accumulators and return to prevent burst release
       if (now < _inhibitUntil) {
-        _resetSmoothing();
+        _accDx = 0;
+        _accDy = 0;
         return;  // absorb OS burst after panel switch
       }
       const { dx, dy } = _filterDelta(rawDx, rawDy);
@@ -342,36 +336,68 @@
       _scheduleFlush();  // batches all moves in this frame into one send
 
     } else if (count === 2) {
-      // Two-finger drag → scroll (natural direction) & pinch → zoom
+      // ─────────────────────────────────────────────────────────────
+      // Two-Finger Gesture: Disambiguate Scroll vs Pinch-Zoom
+      // ─────────────────────────────────────────────────────────────
       
-      // Natural scroll: two-finger drag DOWN → scroll DOWN (not reversed)
-      // Accumulate vertical scroll movement
-      _scrollAcc += rawDy;
-      if (Math.abs(_scrollAcc) >= 5) {
-        // Positive dy (drag down) → positive scroll (scroll down) — natural scroll
-        const clicks = Math.round(_scrollAcc / (5 / CFG.scrollRatio));
-        PocketDeck.send({ type: 'mouse_scroll', dx: 0, dy: clicks });
-        _scrollAcc -= clicks * (5 / CFG.scrollRatio);
-      }
-
-      // Pinch zoom detection: calculate distance between two fingers
       const currDist = _calcPinchDistance(_ptrs);
-      if (_lastPinchDist > 0) {
+      _twoFingerSamples++;
+      
+      if (_twoFingerSamples === 1) {
+        // First sample, just initialize distance
+        _lastPinchDist = currDist;
+      } else {
         const distDelta = currDist - _lastPinchDist;
-        _pinchAccum += distDelta;
+        const absDistDelta = Math.abs(distDelta);
+        const absScrollDelta = Math.abs(rawDy) + Math.abs(rawDx); // approximate parallel movement
+        
+        _twoFingerPinchTotal += absDistDelta;
+        _twoFingerScrollTotal += absScrollDelta;
 
-        // Zoom when accumulated pinch distance crosses threshold
-        // Positive = expanding (zoom in), Negative = contracting (zoom out)
-        if (Math.abs(_pinchAccum) >= 15) {
-          const zoomDirection = _pinchAccum > 0 ? 'ctrl+plus' : 'ctrl+minus';
-          const zoomSteps = Math.round(Math.abs(_pinchAccum) / 15);
-          for (let i = 0; i < zoomSteps; i++) {
-            PocketDeck.send({ type: 'key_tap', key: zoomDirection });
+        // Determine mode if not decided yet, after 3 samples or if a threshold is crossed
+        if (_twoFingerMode === 'undecided') {
+          if (_twoFingerSamples > 3 || _twoFingerPinchTotal > 10 || _twoFingerScrollTotal > 10) {
+            // Compare total movement to classify
+            if (_twoFingerPinchTotal > _twoFingerScrollTotal * 1.5) {
+              _twoFingerMode = 'pinch';
+            } else {
+              _twoFingerMode = 'scroll';
+            }
           }
-          _pinchAccum = 0;  // reset accumulator
         }
+
+        // Execute based on decided mode
+        if (_twoFingerMode === 'scroll' || (_twoFingerMode === 'undecided' && _twoFingerScrollTotal > _twoFingerPinchTotal)) {
+          // --- SCROLLING ---
+          // Negate rawDy to invert scroll (drag UP = negative dy = negative scroll = scroll UP)
+          _scrollAcc += -rawDy; 
+          
+          if (Math.abs(_scrollAcc) >= 5) {
+            const clicks = Math.round(_scrollAcc / (5 / CFG.scrollRatio));
+            PocketDeck.send({ type: 'mouse_scroll', dx: 0, dy: clicks });
+            _scrollAcc -= clicks * (5 / CFG.scrollRatio);
+          }
+        } 
+        else if (_twoFingerMode === 'pinch' || (_twoFingerMode === 'undecided' && _twoFingerPinchTotal > _twoFingerScrollTotal)) {
+          // --- PINCH ZOOM ---
+          _pinchAccum += distDelta;
+
+          // Threshold for zoom step
+          const PINCH_THRESHOLD = 25; 
+          
+          if (Math.abs(_pinchAccum) >= PINCH_THRESHOLD) {
+            const zoomDirection = _pinchAccum > 0 ? 'ctrl+=' : 'ctrl+-';
+            const zoomSteps = Math.floor(Math.abs(_pinchAccum) / PINCH_THRESHOLD);
+            for (let i = 0; i < zoomSteps; i++) {
+              PocketDeck.send({ type: 'key_tap', key: zoomDirection });
+            }
+            // Keep remainder
+            _pinchAccum = _pinchAccum % PINCH_THRESHOLD; 
+          }
+        }
+        
+        _lastPinchDist = currDist;
       }
-      _lastPinchDist = currDist;
 
     } else if (count >= 3 && !_gestureTriggered) {
       // Multi-finger gesture detection

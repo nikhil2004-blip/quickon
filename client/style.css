@@ -303,8 +303,7 @@ input[type="text"]:focus {
   background: radial-gradient(circle closest-side, rgba(255,255,255,0.06), transparent);
   pointer-events: none;
   border-radius: 50%;
-  /* will-change REMOVED from idle state — permanently holding a GPU layer
-     wastes VRAM and keeps the compositor busy even when not touching. */
+  will-change: transform, opacity; /* Keep GPU layer active to prevent promotion lag/jitter */
   opacity: 0;
   transition: opacity 0.4s ease;
   z-index: 10;
@@ -312,7 +311,6 @@ input[type="text"]:focus {
 .touch-glow.active {
   opacity: 1;
   transition: opacity 0.1s ease; /* fast fade in */
-  will-change: transform, opacity;  /* GPU-promote only while actively tracking */
 }
 
 
