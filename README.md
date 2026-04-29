@@ -5,6 +5,8 @@
 
   [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
   [![Made with Python](https://img.shields.io/badge/Python-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
+
+  [![Download PocketDeck.exe](https://img.shields.io/badge/Download-PocketDeck.exe-2ea44f?style=for-the-badge&logo=windows&logoColor=white)](dist/PocketDeck.exe)
 </div>
 
 PocketDeck turns your phone browser into a remote control for your PC: touchpad, keyboard, terminal, widgets, and media controls.  
