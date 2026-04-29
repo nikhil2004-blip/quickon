@@ -31,7 +31,7 @@
 
   // ── Config ────────────────────────────────────────────────────
   const CFG = {
-    sensitivity: 1.5,   // px multiplier
+    sensitivity: 2.5,   // px multiplier (default tuned for natural feel)
     tapMaxMovePx: 12,    // max movement to count as a tap
     tapMaxMs: 300,   // max duration for a tap
     scrollRatio: 2.2,   // higher = slower two-finger scroll
