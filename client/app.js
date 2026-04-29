@@ -29,6 +29,36 @@ let _token    = '';
 let _host     = '';
 let _backoff  = BACKOFF_INIT;
 let _reconnectTimer = null;
+let _keepaliveTimer = null;
+
+// ── Wi-Fi PSM keepalive ───────────────────────────────────────
+// Phone Wi-Fi radios enter power-save mode after ~1s of idle. The first
+// outgoing packet then pays a 50-200ms radio wake-up tax — exactly the
+// lag the user feels on their FIRST trackpad move after a pause.
+//
+// We send a no-op mouse_move(0,0) every 500ms while the page is visible
+// to keep the radio out of deep sleep. Server-side, the move worker drains
+// (0,0), notices both deltas are zero, and breaks without ever calling
+// SetCursorPos — so this is a true no-op, no cursor twitching, no extra
+// syscalls. Paused entirely when the page is hidden so battery isn't
+// drained while the app is backgrounded.
+const _KEEPALIVE_PAYLOAD = '{"type":"mouse_move","dx":0,"dy":0}';
+function _startKeepalive() {
+  _stopKeepalive();
+  if (document.visibilityState !== 'visible') return;
+  _keepaliveTimer = setInterval(() => {
+    if (_ws && _wsReady && _ws.readyState === WebSocket.OPEN
+        && _ws.bufferedAmount < 4096) {
+      try { _ws.send(_KEEPALIVE_PAYLOAD); } catch (_) { /* dropped */ }
+    }
+  }, 500);
+}
+function _stopKeepalive() {
+  if (_keepaliveTimer) {
+    clearInterval(_keepaliveTimer);
+    _keepaliveTimer = null;
+  }
+}
 
 // ── DOM refs ──────────────────────────────────────────────────
 const $connectScreen = document.getElementById('connect-screen');
@@ -130,6 +160,7 @@ function _onMessage(event) {
 function _onClose(event) {
   _wsReady = false;
   _updateAppIndicator(false);
+  _stopKeepalive();
 
   if (event.code === 4003) {
     // Bad token — don't retry automatically
@@ -165,6 +196,7 @@ function _onAuthOk() {
   localStorage.setItem(STORAGE_TOKEN, _token);
   _showAppScreen();
   _updateAppIndicator(true);
+  _startKeepalive();
   console.log('[PocketDeck] Authenticated and connected ✓');
 }
 
@@ -290,12 +322,21 @@ $connectBtn.addEventListener('click', () => {
   });
 });
 
-// ── iOS visibility resume ─────────────────────────────────────
+// ── Visibility resume + keepalive lifecycle ────────────────────
+// On show: reconnect if dropped, otherwise restart the PSM keepalive
+// (a backgrounded tab has its setInterval timers throttled to ~1Hz, so
+// we kick a fresh one when we come back to the foreground).
+// On hide: stop heartbeats so we don't drain battery in background.
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible' && !_wsReady) {
-    // Page became visible again (e.g., screen unlock) — try reconnecting now
-    if (_reconnectTimer) clearTimeout(_reconnectTimer);
-    connect(_host, _token);
+  if (document.visibilityState === 'visible') {
+    if (_wsReady) {
+      _startKeepalive();
+    } else {
+      if (_reconnectTimer) clearTimeout(_reconnectTimer);
+      connect(_host, _token);
+    }
+  } else {
+    _stopKeepalive();
   }
 });
 

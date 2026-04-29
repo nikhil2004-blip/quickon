@@ -34,7 +34,7 @@
     sensitivity: 1.5,   // px multiplier
     tapMaxMovePx: 12,    // max movement to count as a tap
     tapMaxMs: 300,   // max duration for a tap
-    scrollRatio: 2.0,   // scroll sensitivity
+    scrollRatio: 2.2,   // higher = slower two-finger scroll
     gestureMinPx: 30,    // minimum swipe distance to trigger a gesture
     gestureMaxMs: 500,   // maximum time for a swipe gesture
   };
@@ -357,8 +357,8 @@
         if (_twoFingerMode === 'scroll' || (_twoFingerMode === 'undecided' && _twoFingerScrollTotal > _twoFingerPinchTotal)) {
           // Scroll — integer-only accumulator to prevent floating-point drift.
           // Each "click" = SCROLL_STEP raw pixels of finger movement.
-          _scrollAcc += -rawDy;
-          const SCROLL_STEP = 3;
+          _scrollAcc += (-rawDy / CFG.scrollRatio);
+          const SCROLL_STEP = 4;
           const clicks = Math.trunc(_scrollAcc / SCROLL_STEP);
           if (clicks !== 0) {
             PocketDeck.send({ type: 'mouse_scroll', dx: 0, dy: clicks });

@@ -14,11 +14,11 @@ Everything runs on your local network (LAN), no cloud relay.
 
 ## Features
 
-- `ph ph-hand-swipe-right` Touchpad with gestures and smooth cursor control
-- `ph ph-keyboard` On-screen keyboard with modifier keys (`Ctrl`, `Alt`, `Shift`, `Win`)
-- `ph ph-terminal-window` Terminal streaming from your Windows machine
-- `ph ph-rocket-launch` Widget automation via `server/widgets.yaml`
-- `ph ph-music-notes` Media controls
+- `icon: "<i class='ph ph-hand-swipe-right'></i>"` Touchpad with gestures and smooth cursor control
+- `icon: "<i class='ph ph-keyboard'></i>"` On-screen keyboard with modifier keys (`Ctrl`, `Alt`, `Shift`, `Win`)
+- `icon: "<i class='ph ph-terminal-window'></i>"` Terminal streaming from your Windows machine
+- `icon: "<i class='ph ph-rocket-launch'></i>"` Widget automation via `server/widgets.yaml`
+- `icon: "<i class='ph ph-music-notes'></i>"` Media controls
 
 ---
 
@@ -90,7 +90,7 @@ Output: `dist/PocketDeck.exe`
 
 Edit `server/widgets.yaml` to add your own actions.
 
-Use icon style consistent with this project (`ph ph-*`), for example:
+Use icon style consistent with this project in the exact format below, for example:
 
 ```yaml
 widgets:
