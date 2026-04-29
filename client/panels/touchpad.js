@@ -92,8 +92,23 @@
   // getCoalescedEvents() entry) was the #1 source of Wi-Fi congestion and
   // visible cursor lag — JSON.stringify + ws.send() at 4-8× the necessary
   // rate quickly saturates the WebSocket send buffer on mobile networks.
+  //
+  // Backpressure-safe accumulator:
+  // PocketDeck.send() returns false when the WS buffer is full and drops the
+  // message. Without this accumulator, the dx/dy from that drop would be
+  // permanently lost — you'd see the cursor trail behind the finger on big
+  // fast circles (the only motion that overruns the buffer). Instead, we
+  // hold the unsent delta locally and bundle it into the next send. As soon
+  // as the link drains, the cursor catches up exactly.
+  let _sendPendingDx = 0;
+  let _sendPendingDy = 0;
   function _sendMouseMove(dx, dy) {
-    PocketDeck.send({ type: 'mouse_move', dx, dy });
+    _sendPendingDx += dx;
+    _sendPendingDy += dy;
+    if (PocketDeck.send({ type: 'mouse_move', dx: _sendPendingDx, dy: _sendPendingDy })) {
+      _sendPendingDx = 0;
+      _sendPendingDy = 0;
+    }
   }
 
   /** Nuke all accumulator state — clean slate */
@@ -106,6 +121,8 @@
     _twoFingerScrollTotal = 0;
     _twoFingerPinchTotal = 0;
     _cachedRect = null;  // force fresh rect on next pointerdown
+    _sendPendingDx = 0;  // discard unsent backpressure-buffered delta
+    _sendPendingDy = 0;
   }
 
   // ── Filter pipeline & Client-Side Acceleration ───────────────────────────
@@ -788,15 +805,27 @@
   `;
   $panel.appendChild($sliderRow);
 
-  document.getElementById('sens-slider').addEventListener('input', function () {
+  // The <input type="range"> 'input' event fires 50-100× during a fast scrub.
+  // The textContent write below invalidates the slider-row layout each time.
+  // Without throttling, the next pointerdown on the touchpad has to flush all
+  // those queued layout invalidations synchronously inside getBoundingClientRect()
+  // — a 30-80ms blocking pass on Android. THAT is what felt like "touchpad
+  // lag after using the slider".
+  //
+  // Sensitivity itself is updated immediately (cursor speed responds in
+  // real time); only the cosmetic value-label DOM write is rAF-batched.
+  const $sensSlider = document.getElementById('sens-slider');
+  const $sensVal = document.getElementById('sens-val');
+  let _sensRaf = 0;
+  $sensSlider.addEventListener('input', function () {
     CFG.sensitivity = parseFloat(this.value);
-    document.getElementById('sens-val').textContent = CFG.sensitivity + '×';
-    // Only reset scroll accumulator — NOT _cachedRect or pointer state.
-    // _resetSmoothing() was clearing _cachedRect which forced a synchronous
-    // getBoundingClientRect() on the next pointerdown, and clearing _scrollAcc
-    // mid-scroll caused a visible jump. The sensitivity multiplier is applied
-    // fresh on each delta, so no stale state can accumulate.
     _scrollAcc = 0;
+    if (!_sensRaf) {
+      _sensRaf = requestAnimationFrame(() => {
+        _sensRaf = 0;
+        $sensVal.textContent = CFG.sensitivity + '×';
+      });
+    }
   });
 
   // ── Drag Lock (hold left-button for screenshot drag-select) ───
