@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="assets/logo.png" alt="PocketDeck Logo" width="160" style="border-radius: 32px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); margin-bottom: 20px;" />
+  <img src="assets/logo.svg" alt="PocketDeck Logo" width="160" style="border-radius: 32px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); margin-bottom: 20px;" />
   <h1>PocketDeck</h1>
   <p><b>Control your Windows PC from your phone over local Wi-Fi.</b></p>
 
@@ -86,7 +86,7 @@ python server/server.py
 ## Build `.exe` (Windows / PyInstaller)
 
 ```powershell
-pyinstaller --noconfirm --onefile --noconsole --add-data "client;client" --add-data "server;server" --add-data "app.ico;." --icon app.ico --name PocketDeck server/server.py
+pyinstaller --noconfirm --onefile --noconsole --add-data "client;client" --add-data "server;server" --add-data "assets;assets" --add-data "app.ico;." --icon app.ico --name PocketDeck server/server.py
 ```
 
 Output: `dist/PocketDeck.exe`

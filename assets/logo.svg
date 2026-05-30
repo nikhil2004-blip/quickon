@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 512 620">
+
+  <title>PocketDeck</title>
+
+  <!-- Icon -->
+  <g>
+
+    <!-- Pocket -->
+    <path
+      d="M96 180
+         L96 310
+         C96 360 145 405 256 470
+         C367 405 416 360 416 310
+         L416 180
+         L340 250
+         C315 275 289 295 256 320
+         C223 295 197 275 172 250
+         Z"
+      fill="#D8C7A1"/>
+
+    <!-- Deck -->
+    <rect x="190" y="90" width="48" height="48" rx="12" fill="#1F1F1F"/>
+    <rect x="274" y="90" width="48" height="48" rx="12" fill="#1F1F1F"/>
+    <rect x="190" y="170" width="48" height="48" rx="12" fill="#1F1F1F"/>
+    <rect x="274" y="170" width="48" height="48" rx="12" fill="#1F1F1F"/>
+
+  </g>
+
+  <!-- Wordmark -->
+  <text
+      x="256"
+      y="560"
+      text-anchor="middle"
+      font-family="Inter, Segoe UI, sans-serif"
+      font-size="48"
+      font-weight="600"
+      fill="#111111">
+      PocketDeck
+  </text>
+
+</svg>

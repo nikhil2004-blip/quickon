@@ -460,15 +460,20 @@ async def _serve_http() -> None:
                     except Exception:
                         pass
             elif self.path.startswith("/assets/"):
-                # Handle requests for static assets (like logo.png)
+                # Handle requests for static assets (like logo.svg)
                 file_name = self.path[len("/assets/"):]
                 asset_path = Path(sys._MEIPASS) / "assets" / file_name if getattr(sys, "frozen", False) else Path(__file__).resolve().parent.parent / "assets" / file_name
                 if asset_path.exists():
                     try:
                         data = asset_path.read_bytes()
                         self.send_response(200)
-                        # Basic content type mapping for logo.png
-                        content_type = "image/png" if file_name.endswith(".png") else "application/octet-stream"
+                        # Basic content type mapping for the logo asset
+                        if file_name.endswith(".png"):
+                            content_type = "image/png"
+                        elif file_name.endswith(".svg"):
+                            content_type = "image/svg+xml"
+                        else:
+                            content_type = "application/octet-stream"
                         self.send_header("Content-Type", content_type)
                         self.send_header("Content-Length", str(len(data)))
                         self.end_headers()
