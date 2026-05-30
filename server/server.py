@@ -455,7 +455,17 @@ def _run_windows_tray() -> None:
     _startup_ready.wait(timeout=5)
 
     def _current_url() -> str:
-        ip = _startup_info["ips"][0] if _startup_info["ips"] else "127.0.0.1"
+        # Recompute current IPs on demand so the tray QR always reflects the
+        # active network interface (hotspot, Wi-Fi, etc.). Prefer the first
+        # routable/private address returned by get_local_ips().
+        try:
+            ips = get_local_ips()
+            if ips:
+                ip = ips[0]
+            else:
+                ip = _startup_info.get("ips", ["127.0.0.1"])[0]
+        except Exception:
+            ip = _startup_info.get("ips", ["127.0.0.1"])[0]
         return f"http://{ip}:{HTTP_PORT}"
 
     def on_show_qr(_icon, _item):
