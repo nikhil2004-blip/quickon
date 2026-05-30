@@ -8,64 +8,76 @@ ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "app.ico"
 
 
+BASE_SIZE = 256
+
+
 def _draw_icon(size: int) -> Image.Image:
     img = Image.new("RGBA", (size, size), (15, 15, 15, 0))
     draw = ImageDraw.Draw(img)
 
-    # Background tile with a soft dark fill so the icon reads on light menus.
-    bg = (18, 22, 28, 255)
+    # Strong dark background so the icon stays readable at tiny Windows sizes.
+    bg = (14, 18, 24, 255)
     draw.rounded_rectangle(
-        (size * 0.08, size * 0.08, size * 0.92, size * 0.92),
-        radius=int(size * 0.18),
+        (size * 0.06, size * 0.06, size * 0.94, size * 0.94),
+        radius=int(size * 0.20),
         fill=bg,
     )
 
-    pocket = (216, 199, 161, 255)
-    deck = (31, 31, 31, 255)
-    shadow = (0, 0, 0, 70)
+    pocket = (224, 206, 166, 255)
+    deck = (24, 24, 24, 255)
+    edge = (255, 255, 255, 28)
+    shadow = (0, 0, 0, 85)
 
     def scale(x: float) -> int:
-        return round(x * size / 512)
+        return round(x * size / 256)
 
     # Pocket shadow.
     pocket_points = [
-        (scale(96), scale(180)),
-        (scale(96), scale(310)),
-        (scale(145), scale(405)),
-        (scale(256), scale(470)),
-        (scale(367), scale(405)),
-        (scale(416), scale(310)),
-        (scale(416), scale(180)),
-        (scale(340), scale(250)),
-        (scale(315), scale(275)),
-        (scale(289), scale(295)),
-        (scale(256), scale(320)),
-        (scale(223), scale(295)),
-        (scale(197), scale(275)),
-        (scale(172), scale(250)),
+        (scale(48), scale(90)),
+        (scale(48), scale(155)),
+        (scale(72), scale(202)),
+        (scale(128), scale(235)),
+        (scale(184), scale(202)),
+        (scale(208), scale(155)),
+        (scale(208), scale(90)),
+        (scale(170), scale(125)),
+        (scale(157), scale(138)),
+        (scale(144), scale(148)),
+        (scale(128), scale(160)),
+        (scale(112), scale(148)),
+        (scale(99), scale(138)),
+        (scale(86), scale(125)),
     ]
-    shadow_points = [(x + scale(8), y + scale(10)) for x, y in pocket_points]
+    shadow_points = [(x + scale(4), y + scale(5)) for x, y in pocket_points]
     draw.polygon(shadow_points, fill=shadow)
 
     draw.polygon(pocket_points, fill=pocket)
 
     cards = [
-        (190, 90, 48, 48),
-        (274, 90, 48, 48),
-        (190, 170, 48, 48),
-        (274, 170, 48, 48),
+        (95, 44, 24, 24),
+        (137, 44, 24, 24),
+        (95, 84, 24, 24),
+        (137, 84, 24, 24),
     ]
     for x, y, w, h in cards:
         rect = [scale(x), scale(y), scale(x + w), scale(y + h)]
-        draw.rounded_rectangle(rect, radius=max(2, scale(12)), fill=deck)
+        draw.rounded_rectangle(rect, radius=max(2, scale(6)), fill=deck)
+
+    # Thin highlight to keep the pocket shape crisp after downscaling.
+    draw.rounded_rectangle(
+        (scale(48), scale(90), scale(208), scale(235)),
+        radius=scale(28),
+        outline=edge,
+        width=max(1, scale(2)),
+    )
 
     return img
 
 
 def main() -> None:
-    sizes = [16, 24, 32, 48, 64, 128, 256]
-    images = [_draw_icon(size) for size in sizes]
-    images[0].save(OUT, format="ICO", sizes=[(size, size) for size in sizes], append_images=images[1:])
+    master = _draw_icon(BASE_SIZE)
+    sizes = [(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
+    master.save(OUT, format="ICO", sizes=sizes)
     print(f"Wrote {OUT}")
 
 
