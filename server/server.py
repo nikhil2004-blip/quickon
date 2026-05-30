@@ -18,6 +18,7 @@ import os
 import socket
 import sys
 import threading
+from typing import Optional
 import webbrowser
 from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor
@@ -91,6 +92,110 @@ from handlers.mouse import (
 from handlers.keyboard import handle_key_tap, handle_key_down, handle_key_up, handle_text_type
 from handlers.widgets import load_widgets, get_widget_list_payload, run_widget
 from handlers.media import handle_media
+
+# Single-instance guard settings
+_SINGLE_INSTANCE_PORT = 60543
+_single_instance_sock: Optional[socket.socket] = None
+
+
+def _create_and_open_qr_page():
+    """Generate a QR HTML page for the current active IP(s) and open it.
+
+    This is the same behavior as the tray "Show QR Code" action, but
+    exposed so other processes (secondary instances) can request the
+    primary instance to open the QR via IPC.
+    """
+    try:
+        import qrcode
+        from io import BytesIO
+        from server.utils.qr import get_qr_ascii
+    except Exception:
+        # Fallback: try local imports relative to package layout
+        try:
+            import qrcode
+            from io import BytesIO
+        except Exception:
+            return
+
+    try:
+        from utils.network import get_local_ips
+    except Exception:
+        from server.utils.network import get_local_ips
+
+    try:
+        ips = get_local_ips()
+        ip = ips[0] if ips else "127.0.0.1"
+        url = f"http://{ip}:{HTTP_PORT}"
+        token = TOKEN
+
+        # Build a PNG QR and embed as data URI in HTML
+        qr = qrcode.QRCode(version=1, box_size=8, border=2)
+        qr.add_data(url)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        buf = BytesIO()
+        img.save(buf, format="PNG")
+        b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+
+        html = f"""<!doctype html>
+<html>
+<head><meta charset=\"utf-8\"/><title>PocketDeck QR</title></head>
+<body style=\"background:#07090d;color:#f2f4f8;font-family:Segoe UI,sans-serif;padding:20px\"> 
+  <div style=\"max-width:560px;margin:0 auto;text-align:center\"> 
+    <img src=\"data:image/png;base64,{b64}\" style=\"background:#fff;padding:14px;border-radius:12px;\"/> 
+    <div style=\"margin-top:14px;font-size:18px;\">URL: {url}</div>
+    <div style=\"margin-top:6px;font-size:18px;\">Token: <strong>{token}</strong></div>
+  </div>
+</body></html>"""
+
+        tmp = os.path.join(os.getenv("TEMP", "."), "PocketDeck_QR.html")
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(html)
+        webbrowser.open(Path(tmp).resolve().as_uri())
+    except Exception:
+        logging.getLogger("pocketdeck").exception("Failed to open QR page")
+
+
+def _start_single_instance_server():
+    """Start a small loopback server to enforce single instance.
+
+    If another instance is already running, this function will connect to
+    it, send a 'show_qr' command and exit the current process.
+    Otherwise it binds and listens for incoming commands.
+    """
+    global _single_instance_sock
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        sock.bind(('127.0.0.1', _SINGLE_INSTANCE_PORT))
+    except OSError:
+        # Another instance is running — forward the show_qr command and exit
+        try:
+            with socket.create_connection(('127.0.0.1', _SINGLE_INSTANCE_PORT), timeout=1) as s:
+                s.sendall(b'show_qr')
+        except Exception:
+            pass
+        sys.exit(0)
+
+    sock.listen(1)
+    _single_instance_sock = sock
+
+    def _serve():
+        while True:
+            try:
+                conn, _ = sock.accept()
+                with conn:
+                    data = conn.recv(1024).strip().decode('utf-8', errors='ignore')
+                    if data == 'show_qr':
+                        _create_and_open_qr_page()
+            except Exception:
+                # Continue serving despite errors
+                continue
+
+    t = threading.Thread(target=_serve, daemon=True, name="single-instance-server")
+    t.start()
+
 
 # ── configuration ─────────────────────────────────────────────
 WS_PORT   = 8765
@@ -535,6 +640,12 @@ def _run_windows_tray() -> None:
 
 
 if __name__ == "__main__":
+    # Enforce single instance (secondary instances forward commands then exit)
+    try:
+        _start_single_instance_server()
+    except Exception:
+        pass
+
     if os.name == "nt" and getattr(sys, "frozen", False):
         server_thread = threading.Thread(target=lambda: asyncio.run(main()), daemon=True)
         server_thread.start()
