@@ -140,7 +140,10 @@ def _build_qr_blocks(ips: list, port: int, token: str) -> str:
             qr.make(fit=True)
             img = qr.make_image(fill_color="black", back_color="white")
             buf = BytesIO()
-            img.save(buf, format="PNG")
+            try:
+                img.save(buf, format="PNG")  # type: ignore
+            except TypeError:
+                img.save(buf)
             b64 = base64.b64encode(buf.getvalue()).decode("ascii")
             blocks.append(
                 f'<div class="qr-block">'
@@ -218,7 +221,7 @@ def _create_and_open_qr_page():
         from utils.network import get_local_ips
     except Exception:
         try:
-            from server.utils.network import get_local_ips
+            from server.utils.network import get_local_ips  # type: ignore
         except Exception:
             return
 
