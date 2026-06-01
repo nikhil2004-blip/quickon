@@ -342,17 +342,22 @@ document.addEventListener('visibilitychange', () => {
 
 // ── Boot ──────────────────────────────────────────────────────
 (function boot() {
-  const savedHost  = localStorage.getItem(STORAGE_HOST)  || _deriveHostFromUrl();
-  const savedToken = localStorage.getItem(STORAGE_TOKEN) || '';
+  const currentHost = _deriveHostFromUrl();
+  const savedHost   = localStorage.getItem(STORAGE_HOST) || '';
+  const savedToken  = localStorage.getItem(STORAGE_TOKEN) || '';
+  const bootHost    = currentHost || savedHost;
 
   // Pre-fill inputs for manual entry
-  if (savedHost)  $hostInput.value  = savedHost;
-  if (savedToken) $tokenInput.value = savedToken;
+  if (bootHost)    $hostInput.value  = bootHost;
+  if (savedToken)  $tokenInput.value = savedToken;
 
-  if (savedHost && savedToken) {
-    // Auto-connect
-    connect(savedHost, savedToken);
-  } else if (savedHost && !savedToken) {
+  if (currentHost && savedToken) {
+    // When opened from the QR, always connect to the current page host.
+    connect(currentHost, savedToken);
+  } else if (bootHost && savedToken) {
+    // Fall back to the saved host only when the page has no hostname.
+    connect(bootHost, savedToken);
+  } else if (bootHost && !savedToken) {
     _setConnectStatus('error', 'Enter auth token to connect');
   } else {
     _setConnectStatus('error', 'Enter your PC\'s IP address');
