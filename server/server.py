@@ -101,56 +101,133 @@ _SINGLE_INSTANCE_PORT = 60543
 _single_instance_sock: Optional[socket.socket] = None
 
 
-def _create_and_open_qr_page():
-    """Generate a QR HTML page for the current active IP(s) and open it.
+def _build_qr_blocks(ips: list, port: int, token: str) -> str:
+    """Build HTML blocks with one QR code per IP address.
 
-    This is the same behavior as the tray "Show QR Code" action, but
-    exposed so other processes (secondary instances) can request the
-    primary instance to open the QR via IPC.
+    Generates a separate QR code for every detected network interface so
+    the user can scan whichever one matches their phone's connection
+    (Wi-Fi, mobile hotspot, USB tethering, etc.).
+    """
+    import qrcode
+
+    def _interface_hint(ip: str) -> str:
+        parts = ip.split('.')
+        if len(parts) != 4:
+            return ""
+        try:
+            p0, p1, p2 = int(parts[0]), int(parts[1]), int(parts[2])
+        except ValueError:
+            return ""
+        if p0 == 192 and p1 == 168 and p2 == 137:
+            return " (Hotspot)"
+        if p0 == 192 and p1 == 168:
+            return " (Wi-Fi / LAN)"
+        if p0 == 10:
+            return " (Wi-Fi / VPN)"
+        if p0 == 172:
+            return " (USB Tether / VPN)"
+        if p0 == 169 and p1 == 254:
+            return " (Link-local - no DHCP)"
+        return ""
+
+    blocks = []
+    for ip in ips:
+        url = f"http://{ip}:{port}"
+        hint = _interface_hint(ip)
+        try:
+            qr = qrcode.QRCode(version=1, box_size=8, border=2)
+            qr.add_data(url)
+            qr.make(fit=True)
+            img = qr.make_image(fill_color="black", back_color="white")
+            buf = BytesIO()
+            img.save(buf, format="PNG")
+            b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+            blocks.append(
+                f'<div class="qr-block">'
+                f'<div class="iface-label">{ip}{hint}</div>'
+                f'<img src="data:image/png;base64,{b64}" alt="QR for {url}" />'
+                f'<div class="url-label">{url}</div>'
+                f'</div>'
+            )
+        except Exception as exc:
+            logging.getLogger("pocketdeck").warning(f"Could not generate QR for {ip}: {exc}")
+    return "\n".join(blocks)
+
+
+_QR_PAGE_STYLE = """
+    body { background: #07090d; color: #f2f4f8;
+           font-family: Segoe UI, sans-serif; margin: 0; padding: 24px; }
+    h1 { text-align: center; font-size: 22px; margin-bottom: 4px; }
+    .subtitle { text-align: center; color: #8a9bb5; font-size: 14px;
+                margin-bottom: 24px; }
+    .token-banner { text-align: center; font-size: 18px; margin-bottom: 28px; }
+    .token-banner strong { font-size: 24px; letter-spacing: 2px;
+                           background: #1a2233; padding: 4px 16px;
+                           border-radius: 8px; }
+    .grid { display: flex; flex-wrap: wrap; gap: 32px; justify-content: center; }
+    .qr-block { background: #111827; border-radius: 16px; padding: 20px;
+                text-align: center; min-width: 260px; }
+    .iface-label { font-size: 15px; color: #93c5fd; margin-bottom: 12px;
+                   font-weight: 600; }
+    .qr-block img { width: min(72vw, 320px); background: #fff;
+                    padding: 12px; border-radius: 10px; display: block;
+                    margin: 0 auto; }
+    .url-label { margin-top: 10px; font-size: 14px; color: #8a9bb5;
+                 word-break: break-all; }
+    .hint { text-align: center; color: #4b5563; font-size: 13px;
+            margin-top: 28px; }
+"""
+
+
+def _build_qr_html(ips: list, port: int, token: str) -> str:
+    """Return a complete HTML page with one QR code per IP."""
+    qr_blocks = _build_qr_blocks(ips, port, token)
+    return f"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>PocketDeck QR</title>
+  <style>{_QR_PAGE_STYLE}</style>
+</head>
+<body>
+  <h1>PocketDeck - Scan to Connect</h1>
+  <p class="subtitle">Scan the QR that matches your phone's network</p>
+  <div class="token-banner">Token: <strong>{token}</strong></div>
+  <div class="grid">{qr_blocks}</div>
+  <p class="hint">Each QR code is a different network interface on this PC.<br>
+     Scan the one whose IP is reachable from your phone.</p>
+</body>
+</html>"""
+
+
+def _create_and_open_qr_page():
+    """Generate a QR HTML page for ALL current active IPs and open it.
+
+    Shows one QR code per detected network interface so the user can scan
+    whichever one corresponds to their phone's connection (Wi-Fi, hotspot,
+    USB tether, etc.).
+
+    Exposed so secondary instances can trigger this via IPC.
     """
     try:
-        import qrcode
-        from io import BytesIO
-        from server.utils.qr import get_qr_ascii
+        import qrcode  # noqa: F401 -- ensure library is present
     except Exception:
-        # Fallback: try local imports relative to package layout
-        try:
-            import qrcode
-            from io import BytesIO
-        except Exception:
-            return
+        return
 
     try:
         from utils.network import get_local_ips
     except Exception:
-        from server.utils.network import get_local_ips
+        try:
+            from server.utils.network import get_local_ips
+        except Exception:
+            return
 
     try:
         ips = get_local_ips()
-        ip = ips[0] if ips else "127.0.0.1"
-        url = f"http://{ip}:{HTTP_PORT}"
+        if not ips:
+            ips = ["127.0.0.1"]
         token = TOKEN
-
-        # Build a PNG QR and embed as data URI in HTML
-        qr = qrcode.QRCode(version=1, box_size=8, border=2)
-        qr.add_data(url)
-        qr.make(fit=True)
-        img = qr.make_image(fill_color="black", back_color="white")
-        buf = BytesIO()
-        img.save(buf, format="PNG")
-        b64 = base64.b64encode(buf.getvalue()).decode("ascii")
-
-        html = f"""<!doctype html>
-<html>
-<head><meta charset=\"utf-8\"/><title>PocketDeck QR</title></head>
-<body style=\"background:#07090d;color:#f2f4f8;font-family:Segoe UI,sans-serif;padding:20px\"> 
-  <div style=\"max-width:560px;margin:0 auto;text-align:center\"> 
-    <img src=\"data:image/png;base64,{b64}\" style=\"background:#fff;padding:14px;border-radius:12px;\"/> 
-    <div style=\"margin-top:14px;font-size:18px;\">URL: {url}</div>
-    <div style=\"margin-top:6px;font-size:18px;\">Token: <strong>{token}</strong></div>
-  </div>
-</body></html>"""
-
+        html = _build_qr_html(ips, HTTP_PORT, token)
         tmp = os.path.join(os.getenv("TEMP", "."), "PocketDeck_QR.html")
         with open(tmp, "w", encoding="utf-8") as f:
             f.write(html)
@@ -552,58 +629,31 @@ def _run_windows_tray() -> None:
 
     _startup_ready.wait(timeout=5)
 
-    def _current_url() -> str:
-        # Recompute current IPs on demand so the tray QR always reflects the
-        # active network interface (hotspot, Wi-Fi, etc.). Prefer the first
-        # routable/private address returned by get_local_ips().
+    def _get_current_ips() -> list:
+        """Re-detect all network interface IPs at call time."""
         try:
-            ips = get_local_ips()
-            if ips:
-                ip = ips[0]
-            else:
-                ip = _startup_info.get("ips", ["127.0.0.1"])[0]
+            current = get_local_ips()
+            return current if current else _startup_info.get("ips", ["127.0.0.1"])
         except Exception:
-            ip = _startup_info.get("ips", ["127.0.0.1"])[0]
-        return f"http://{ip}:{HTTP_PORT}"
+            return _startup_info.get("ips", ["127.0.0.1"])
+
+    def _current_url() -> str:
+        """Return the primary URL (used by on_info notification)."""
+        ips = _get_current_ips()
+        return f"http://{ips[0]}:{HTTP_PORT}"
 
     def on_show_qr(_icon, _item):
+        """Show QR page with one QR code per detected network interface.
+
+        IPs are re-detected at click time so hotspot / Wi-Fi switches are
+        always reflected without restarting PocketDeck.
+        """
         try:
-            import qrcode
+            import qrcode  # noqa: F401 — ensure library present
 
-            url = _current_url()
+            current_ips = _get_current_ips()
             token = _startup_info.get("token", "")
-
-            qr = qrcode.QRCode(version=1, box_size=8, border=2)
-            qr.add_data(url)
-            qr.make(fit=True)
-            img = qr.make_image(fill_color="black", back_color="white")
-
-            buf = BytesIO()
-            img.save(buf, format="PNG")
-            b64 = base64.b64encode(buf.getvalue()).decode("ascii")
-
-            html = f"""<!doctype html>
-<html>
-<head>
-    <meta charset=\"utf-8\" />
-    <title>PocketDeck QR</title>
-    <style>
-        body {{ background: #07090d; color: #f2f4f8; font-family: Segoe UI, sans-serif; margin: 0; padding: 24px; }}
-        .wrap {{ max-width: 560px; margin: 0 auto; text-align: center; }}
-        img {{ width: min(82vw, 420px); background: #fff; padding: 14px; border-radius: 12px; }}
-        .meta {{ margin-top: 14px; font-size: 18px; line-height: 1.5; }}
-        .token {{ font-weight: 700; letter-spacing: 0.5px; }}
-    </style>
-</head>
-<body>
-    <div class=\"wrap\">
-        <img src=\"data:image/png;base64,{b64}\" alt=\"PocketDeck QR\" />
-        <div class=\"meta\">URL: {url}</div>
-        <div class=\"meta\">Token: <span class=\"token\">{token}</span></div>
-    </div>
-</body>
-</html>"""
-
+            html = _build_qr_html(current_ips, HTTP_PORT, token)
             qr_page = Path(os.getenv("TEMP", ".")) / "PocketDeck_QR.html"
             qr_page.write_text(html, encoding="utf-8")
             webbrowser.open(qr_page.resolve().as_uri())
