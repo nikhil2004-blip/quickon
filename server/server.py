@@ -300,6 +300,53 @@ _startup_ready = threading.Event()
 _startup_info = {"ips": ["127.0.0.1"], "token": ""}
 
 
+def _ensure_firewall_rule() -> None:
+    """Add a Windows Firewall inbound rule for PocketDeck on first run.
+
+    Checks if the rule already exists — if not, triggers a one-time UAC
+    elevation dialog so the user only ever has to click 'Yes' once.
+    After that, the rule persists permanently and this function is a no-op.
+    """
+    if os.name != "nt":
+        return  # Only relevant on Windows
+
+    import subprocess
+    import ctypes
+
+    rule_name = "PocketDeck"
+
+    # Check if rule already exists (no elevation needed to query)
+    try:
+        result = subprocess.run(
+            ["netsh", "advfirewall", "firewall", "show", "rule", f"name={rule_name}"],
+            capture_output=True, text=True
+        )
+        if rule_name in result.stdout:
+            return  # Rule already set — nothing to do
+    except Exception:
+        return
+
+    # Rule doesn't exist — request elevation and add it (one-time UAC prompt)
+    logger.info("Requesting one-time firewall rule setup via UAC…")
+    try:
+        rc = ctypes.windll.shell32.ShellExecuteW(
+            None,
+            "runas",
+            "netsh",
+            f'advfirewall firewall add rule name="{rule_name}" dir=in action=allow protocol=TCP localport={HTTP_PORT}',
+            None,
+            0,   # SW_HIDE — no command-window flash
+        )
+        if rc <= 32:
+            logger.warning("Firewall rule setup was declined or failed (rc=%s). "
+                           "Mobile connections may not work.", rc)
+        else:
+            logger.info("Firewall rule added successfully.")
+    except Exception as exc:
+        logger.warning("Could not add firewall rule: %s", exc)
+
+
+
 def _ensure_terminal_session(ws: WebSocketServerProtocol):
     """Create a terminal session only when the client actually uses terminal panel."""
     term = active_terminals.get(ws)
@@ -691,6 +738,9 @@ if __name__ == "__main__":
         _start_single_instance_server()
     except Exception:
         pass
+
+    # Ensure Windows Firewall allows inbound connections — one-time UAC prompt
+    _ensure_firewall_rule()
 
     if os.name == "nt" and getattr(sys, "frozen", False):
         server_thread = threading.Thread(target=lambda: asyncio.run(main()), daemon=True)
