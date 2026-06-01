@@ -12,6 +12,8 @@ Architecture:
 
 import asyncio
 import base64
+import http
+import mimetypes
 import json
 import logging
 import os
@@ -19,6 +21,7 @@ import socket
 import sys
 import threading
 from typing import Optional
+from urllib.parse import urlparse
 import webbrowser
 from io import BytesIO
 from concurrent.futures import ThreadPoolExecutor
@@ -198,8 +201,8 @@ def _start_single_instance_server():
 
 
 # ── configuration ─────────────────────────────────────────────
-WS_PORT   = 8765
 HTTP_PORT = 8766
+WS_PORT   = HTTP_PORT
 AUTH_TIMEOUT = 3.0   # seconds to authenticate before drop
 
 # ── logging ───────────────────────────────────────────────────
@@ -424,73 +427,71 @@ async def _dispatch(ws: WebSocketServerProtocol, raw: str) -> None:
         logger.debug(f"Unknown message type: {t!r}")
 
 
-# ══════════════════════════════════════════════════════════════
-# HTTP server — serves client/ over plain HTTP
-# ══════════════════════════════════════════════════════════════
+def _static_response(path: str) -> tuple[http.HTTPStatus, list[tuple[str, str]], bytes] | None:
+    """Return an HTTP response for a static asset path, or None if not found."""
+    root_dir = Path(sys._MEIPASS) if getattr(sys, "frozen", False) else Path(__file__).resolve().parent.parent
+    request_path = urlparse(path).path or "/"
+
+    if request_path == "/":
+        request_path = "/index.html"
+
+    if request_path == "/app.ico":
+        file_path = root_dir / "app.ico"
+    elif request_path.startswith("/assets/"):
+        file_path = root_dir / "assets" / request_path[len("/assets/"):]
+    else:
+        file_path = CLIENT_DIR / request_path.lstrip("/")
+
+    try:
+        resolved = file_path.resolve()
+        if not resolved.exists():
+            return None
+
+        # Keep the static server confined to the packaged asset tree.
+        allowed_roots = [CLIENT_DIR.resolve(), (root_dir / "assets").resolve(), root_dir.resolve()]
+        if not any(str(resolved).startswith(str(root)) for root in allowed_roots):
+            return None
+
+        data = resolved.read_bytes()
+        content_type = mimetypes.guess_type(resolved.name)[0] or "application/octet-stream"
+        headers = [
+            ("Content-Type", content_type),
+            ("Content-Length", str(len(data))),
+        ]
+        return http.HTTPStatus.OK, headers, data
+    except Exception:
+        return None
+
 
 async def _serve_http() -> None:
-    """
-    Minimal asyncio-compatible HTTP server that serves the client/ directory.
-    Uses Python's built-in http.server.SimpleHTTPRequestHandler in a thread pool
-    so it doesn't block the event loop.
-    """
-    import http.server
-    import threading
-    import functools
+    """Serve static assets and WebSocket upgrades on the same port."""
 
-    class _PocketDeckHandler(http.server.SimpleHTTPRequestHandler):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, directory=str(CLIENT_DIR), **kwargs)
+    async def _process_request(path, request_headers):
+        # Let the WebSocket handshake proceed when the browser requests the
+        # control channel, but answer plain HTTP GETs with our static files.
+        if request_headers.get("Upgrade", "").lower() == "websocket":
+            return None
 
-        def log_message(self, *args):
-            pass
+        response = _static_response(path)
+        if response is not None:
+            return response
 
-        def do_GET(self):
-            if self.path == "/app.ico":
-                icon_path = Path(sys._MEIPASS) / "app.ico" if getattr(sys, "frozen", False) else Path(__file__).resolve().parent.parent / "app.ico"
-                if icon_path.exists():
-                    try:
-                        data = icon_path.read_bytes()
-                        self.send_response(200)
-                        self.send_header("Content-Type", "image/x-icon")
-                        self.send_header("Content-Length", str(len(data)))
-                        self.end_headers()
-                        self.wfile.write(data)
-                        return
-                    except Exception:
-                        pass
-            elif self.path.startswith("/assets/"):
-                # Handle requests for static assets (like logo.svg)
-                file_name = self.path[len("/assets/"):]
-                asset_path = Path(sys._MEIPASS) / "assets" / file_name if getattr(sys, "frozen", False) else Path(__file__).resolve().parent.parent / "assets" / file_name
-                if asset_path.exists():
-                    try:
-                        data = asset_path.read_bytes()
-                        self.send_response(200)
-                        # Basic content type mapping for the logo asset
-                        if file_name.endswith(".png"):
-                            content_type = "image/png"
-                        elif file_name.endswith(".svg"):
-                            content_type = "image/svg+xml"
-                        else:
-                            content_type = "application/octet-stream"
-                        self.send_header("Content-Type", content_type)
-                        self.send_header("Content-Length", str(len(data)))
-                        self.end_headers()
-                        self.wfile.write(data)
-                        return
-                    except Exception:
-                        pass
+        body = b"Not found"
+        return http.HTTPStatus.NOT_FOUND, [("Content-Type", "text/plain; charset=utf-8"), ("Content-Length", str(len(body)))], body
 
-            return super().do_GET()
+    logger.info(f"Unified HTTP/WebSocket server → http://0.0.0.0:{HTTP_PORT}  (serving {CLIENT_DIR})")
 
-    server = http.server.HTTPServer(("0.0.0.0", HTTP_PORT), _PocketDeckHandler)
-
-    logger.info(f"HTTP server → http://0.0.0.0:{HTTP_PORT}  (serving {CLIENT_DIR})")
-
-    # Run in a daemon thread — it lives as long as the process
-    t = threading.Thread(target=server.serve_forever, daemon=True)
-    t.start()
+    async with serve(
+        handle_connection,
+        "0.0.0.0",
+        HTTP_PORT,
+        ping_interval=20,
+        ping_timeout=10,
+        compression=None,
+        process_request=_process_request,
+    ):
+        logger.info("PocketDeck ready — waiting for connections…")
+        await asyncio.Future()
 
 
 # ══════════════════════════════════════════════════════════════
@@ -513,25 +514,12 @@ async def main() -> None:
     _startup_info["token"] = TOKEN
     _startup_ready.set()
 
-    # Start HTTP server in background thread
-    await _serve_http()
-
     # Print QR codes / banner
     print_startup_banner(ips, HTTP_PORT, WS_PORT, TOKEN)
-
     logger.info(f"WebSocket server → ws://0.0.0.0:{WS_PORT}")
 
-    async with serve(
-        handle_connection,
-        "0.0.0.0",
-        WS_PORT,
-        ping_interval=20,
-        ping_timeout=10,
-        # Disable Nagle's algorithm: send each frame immediately, no buffering
-        compression=None,
-    ):
-        logger.info("PocketDeck ready — waiting for connections…")
-        await asyncio.Future()   # run forever
+    # Start the unified HTTP/WebSocket server.
+    await _serve_http()
 
 
 def _make_tray_icon_image():

@@ -12,7 +12,7 @@
 'use strict';
 
 // ── Constants ────────────────────────────────────────────────
-const WS_PORT   = 8765;
+const WS_PORT   = window.location.port || '8765';
 const WS_PROTO  = 'ws:';   // LAN only — no TLS
 
 // Exponential backoff reconnect: 500ms → 1s → 2s → 4s → 8s → cap 10s
