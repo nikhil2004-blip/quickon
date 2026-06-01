@@ -227,6 +227,10 @@ def _create_and_open_qr_page():
 
     try:
         ips = get_local_ips()
+        # Filter out link-local (169.254.x.x) — these only work for direct
+        # cable connections and will never connect from a phone over WiFi/hotspot
+        routable = [ip for ip in ips if not ip.startswith("169.254.")]
+        ips = routable if routable else ips  # fall back to all IPs if nothing else
         if not ips:
             ips = ["127.0.0.1"]
         token = TOKEN
@@ -702,6 +706,9 @@ def _run_windows_tray() -> None:
             import qrcode  # noqa: F401 — ensure library present
 
             current_ips = _get_current_ips()
+            # Filter out link-local (169.254.x.x) — not reachable from phone over WiFi/hotspot
+            routable = [ip for ip in current_ips if not ip.startswith("169.254.")]
+            current_ips = routable if routable else current_ips
             token = _startup_info.get("token", "")
             html = _build_qr_html(current_ips, HTTP_PORT, token)
             qr_page = Path(os.getenv("TEMP", ".")) / "PocketDeck_QR.html"
