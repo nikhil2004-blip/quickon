@@ -86,7 +86,7 @@ else:
     CLIENT_DIR = _SERVER_DIR.parent / "client"
 
 from utils.auth import generate_token, validate_token
-from utils.network import get_local_ips, get_os_name
+from utils.network import get_local_ips, get_primary_ip, get_os_name
 from utils.qr import print_startup_banner
 from handlers.mouse import (
     handle_mouse_move, handle_mouse_click, handle_mouse_scroll, handle_mouse_button,
@@ -101,60 +101,32 @@ _SINGLE_INSTANCE_PORT = 60543
 _single_instance_sock: Optional[socket.socket] = None
 
 
-def _build_qr_blocks(ips: list, port: int, token: str) -> str:
-    """Build HTML blocks with one QR code per IP address.
-
-    Generates a separate QR code for every detected network interface so
-    the user can scan whichever one matches their phone's connection
-    (Wi-Fi, mobile hotspot, USB tethering, etc.).
-    """
+def _build_qr_block(ip: str, port: int, token: str) -> str:
+    """Build one QR HTML block for the primary WiFi IP."""
     import qrcode
 
-    def _interface_hint(ip: str) -> str:
-        parts = ip.split('.')
-        if len(parts) != 4:
-            return ""
+    url = f"http://{ip}:{port}"
+    try:
+        qr = qrcode.QRCode(version=1, box_size=8, border=2)
+        qr.add_data(url)
+        qr.make(fit=True)
+        img = qr.make_image(fill_color="black", back_color="white")
+        buf = BytesIO()
         try:
-            p0, p1, p2 = int(parts[0]), int(parts[1]), int(parts[2])
-        except ValueError:
-            return ""
-        if p0 == 192 and p1 == 168 and p2 == 137:
-            return " (Hotspot)"
-        if p0 == 192 and p1 == 168:
-            return " (Wi-Fi / LAN)"
-        if p0 == 10:
-            return " (Wi-Fi / VPN)"
-        if p0 == 172:
-            return " (USB Tether / VPN)"
-        if p0 == 169 and p1 == 254:
-            return " (Link-local - no DHCP)"
+            img.save(buf, format="PNG")  # type: ignore
+        except TypeError:
+            img.save(buf)
+        b64 = base64.b64encode(buf.getvalue()).decode("ascii")
+        return (
+            f'<div class="qr-block">'
+            f'<div class="iface-label">{ip} (Wi-Fi)</div>'
+            f'<img src="data:image/png;base64,{b64}" alt="QR for {url}" />'
+            f'<div class="url-label">{url}</div>'
+            f'</div>'
+        )
+    except Exception as exc:
+        logging.getLogger("pocketdeck").warning(f"Could not generate QR for {ip}: {exc}")
         return ""
-
-    blocks = []
-    for ip in ips:
-        url = f"http://{ip}:{port}"
-        hint = _interface_hint(ip)
-        try:
-            qr = qrcode.QRCode(version=1, box_size=8, border=2)
-            qr.add_data(url)
-            qr.make(fit=True)
-            img = qr.make_image(fill_color="black", back_color="white")
-            buf = BytesIO()
-            try:
-                img.save(buf, format="PNG")  # type: ignore
-            except TypeError:
-                img.save(buf)
-            b64 = base64.b64encode(buf.getvalue()).decode("ascii")
-            blocks.append(
-                f'<div class="qr-block">'
-                f'<div class="iface-label">{ip}{hint}</div>'
-                f'<img src="data:image/png;base64,{b64}" alt="QR for {url}" />'
-                f'<div class="url-label">{url}</div>'
-                f'</div>'
-            )
-        except Exception as exc:
-            logging.getLogger("pocketdeck").warning(f"Could not generate QR for {ip}: {exc}")
-    return "\n".join(blocks)
 
 
 _QR_PAGE_STYLE = """
@@ -182,9 +154,10 @@ _QR_PAGE_STYLE = """
 """
 
 
-def _build_qr_html(ips: list, port: int, token: str) -> str:
-    """Return a complete HTML page with one QR code per IP."""
-    qr_blocks = _build_qr_blocks(ips, port, token)
+def _build_qr_html(ip: str, port: int, token: str) -> str:
+    """Return a complete HTML page with a single QR code for the primary WiFi IP."""
+    qr_block = _build_qr_block(ip, port, token)
+    url = f"http://{ip}:{port}"
     return f"""<!doctype html>
 <html>
 <head>
@@ -194,21 +167,16 @@ def _build_qr_html(ips: list, port: int, token: str) -> str:
 </head>
 <body>
   <h1>PocketDeck - Scan to Connect</h1>
-  <p class="subtitle">Scan the QR that matches your phone's network</p>
+  <p class="subtitle">Connect your phone to the same Wi-Fi, then scan below</p>
   <div class="token-banner">Token: <strong>{token}</strong></div>
-  <div class="grid">{qr_blocks}</div>
-  <p class="hint">Each QR code is a different network interface on this PC.<br>
-     Scan the one whose IP is reachable from your phone.</p>
+  <div class="grid">{qr_block}</div>
+  <p class="hint">Make sure your phone is on the same Wi-Fi network as this PC.</p>
 </body>
 </html>"""
 
 
 def _create_and_open_qr_page():
-    """Generate a QR HTML page for ALL current active IPs and open it.
-
-    Shows one QR code per detected network interface so the user can scan
-    whichever one corresponds to their phone's connection (Wi-Fi, hotspot,
-    USB tether, etc.).
+    """Generate a QR HTML page for the primary WiFi IP and open it.
 
     Exposed so secondary instances can trigger this via IPC.
     """
@@ -218,23 +186,17 @@ def _create_and_open_qr_page():
         return
 
     try:
-        from utils.network import get_local_ips
+        from utils.network import get_primary_ip
     except Exception:
         try:
-            from server.utils.network import get_local_ips  # type: ignore
+            from server.utils.network import get_primary_ip  # type: ignore
         except Exception:
             return
 
     try:
-        ips = get_local_ips()
-        # Filter out link-local (169.254.x.x) — these only work for direct
-        # cable connections and will never connect from a phone over WiFi/hotspot
-        routable = [ip for ip in ips if not ip.startswith("169.254.")]
-        ips = routable if routable else ips  # fall back to all IPs if nothing else
-        if not ips:
-            ips = ["127.0.0.1"]
+        ip = get_primary_ip()
         token = TOKEN
-        html = _build_qr_html(ips, HTTP_PORT, token)
+        html = _build_qr_html(ip, HTTP_PORT, token)
         tmp = os.path.join(os.getenv("TEMP", "."), "PocketDeck_QR.html")
         with open(tmp, "w", encoding="utf-8") as f:
             f.write(html)
@@ -645,8 +607,9 @@ async def main() -> None:
     _startup_info["token"] = TOKEN
     _startup_ready.set()
 
-    # Print QR codes / banner
-    print_startup_banner(ips, HTTP_PORT, WS_PORT, TOKEN)
+    # Print single QR code banner using the primary WiFi IP
+    primary_ip = get_primary_ip()
+    print_startup_banner(primary_ip, HTTP_PORT, WS_PORT, TOKEN)
     logger.info(f"WebSocket server → ws://0.0.0.0:{WS_PORT}")
 
     # Start the unified HTTP/WebSocket server.
@@ -697,20 +660,17 @@ def _run_windows_tray() -> None:
         return f"http://{ips[0]}:{HTTP_PORT}"
 
     def on_show_qr(_icon, _item):
-        """Show QR page with one QR code per detected network interface.
+        """Show QR page for the current primary WiFi IP.
 
-        IPs are re-detected at click time so hotspot / Wi-Fi switches are
-        always reflected without restarting PocketDeck.
+        IP is re-detected at click time so network switches are reflected
+        without restarting PocketDeck.
         """
         try:
             import qrcode  # noqa: F401 — ensure library present
 
-            current_ips = _get_current_ips()
-            # Filter out link-local (169.254.x.x) — not reachable from phone over WiFi/hotspot
-            routable = [ip for ip in current_ips if not ip.startswith("169.254.")]
-            current_ips = routable if routable else current_ips
+            ip = get_primary_ip()
             token = _startup_info.get("token", "")
-            html = _build_qr_html(current_ips, HTTP_PORT, token)
+            html = _build_qr_html(ip, HTTP_PORT, token)
             qr_page = Path(os.getenv("TEMP", ".")) / "PocketDeck_QR.html"
             qr_page.write_text(html, encoding="utf-8")
             webbrowser.open(qr_page.resolve().as_uri())

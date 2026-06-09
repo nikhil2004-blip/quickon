@@ -1,6 +1,6 @@
 """
 network.py — IP detection and mDNS announcement
-Detects all local IPv4 addresses (non-loopback).
+Detects the best local IPv4 address for a standard WiFi network.
 Optionally announces via mDNS as pocketdeck.local (Phase 6).
 """
 
@@ -125,6 +125,32 @@ def get_local_ips() -> list[str]:
 
     ips_sorted = sorted(ips, key=lambda a: (_addr_weight(a), a))
     return ips_sorted
+
+
+def get_primary_ip() -> str:
+    """
+    Return the single best IPv4 address for the current primary network interface.
+
+    Uses the UDP "connect to 8.8.8.8" trick to ask the OS which outbound
+    interface it would use — this reliably picks the active WiFi/LAN
+    address on a standard (non-AP-isolated) network without sending any
+    real traffic.
+
+    Falls back to the first entry from get_local_ips() if the trick fails.
+    """
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as s:
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            if ip and not ip.startswith("127.") and not ip.startswith("169.254."):
+                return ip
+    except OSError:
+        pass
+
+    # Fallback: use the first routable IP from the full scan
+    ips = get_local_ips()
+    routable = [ip for ip in ips if not ip.startswith("169.254.")]
+    return routable[0] if routable else (ips[0] if ips else "127.0.0.1")
 
 
 def get_os_name() -> str:

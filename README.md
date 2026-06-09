@@ -33,9 +33,9 @@ Everything runs on your local network (LAN), no cloud relay.
 - Windows 10 or Windows 11
 - Phone + PC must be connected to the **same Wi-Fi network**
 - Python 3.10+ only if you want to run from source
-- Oh yeah, if you’re on 2.4 GHz, don’t worry about the lag—it’s not a problem, it’s a feature. That’s just how it’s “supposed” to be 🙃
+- Oh yeah, if you're on 2.4 GHz, don't worry about the lag—it's not a problem, it's a feature. That's just how it's "supposed" to be 🙃
 
-> If phone and PC are on different networks (or VPN-isolated), connection will fail.
+> **Note:** PocketDeck works on standard home/office Wi-Fi networks. If your network has AP isolation enabled (some public Wi-Fi and enterprise networks), devices on the same network won't be able to communicate — in that case, use your PC's mobile hotspot instead.
 
 ---
 

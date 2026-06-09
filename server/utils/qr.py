@@ -44,29 +44,27 @@ def get_qr_ascii(url: str) -> str:
     
     return output
 
-def print_startup_banner(ips: list[str], http_port: int, ws_port: int, token: str) -> None:
-    """Prints the beautiful startup banner with scanable QR codes."""
+def print_startup_banner(ip: str, http_port: int, ws_port: int, token: str) -> None:
+    """Prints the startup banner with a single scannable QR code for the primary WiFi IP."""
     border = "=" * 60
     print("\n" + border)
     print("  PocketDeck \u2014 Mobile Remote Control")
     print(border + "\n")
 
-    # Use bright color for the token
     print(f"  Auth Token: {Style.BRIGHT}{token}{Style.RESET_ALL}  (enter this on your phone)\n")
-    print("  Scan the QR code below to connect:")
 
-    for ip in ips:
-        url = f"http://{ip}:{http_port}"
-        print(f"\n  {url}")
-        try:
-            # Print the QR code with a bit of top/bottom margin
-            print("\n")
-            print(get_qr_ascii(url))
-            print("\n")
-        except Exception as e:
-            print(f"  [!] Could not render QR for {ip}: {e}")
+    url = f"http://{ip}:{http_port}"
+    print(f"  Scan the QR code below to connect:\n")
+    print(f"  {url}")
+    try:
+        print("\n")
+        print(get_qr_ascii(url))
+        print("\n")
+    except Exception as e:
+        print(f"  [!] Could not render QR: {e}")
 
-    print("  WebSocket: ws://[ip]:" + str(ws_port))
-    print("  HTTP:      http://[ip]:" + str(http_port))
+    print("  WebSocket: ws://" + ip + ":" + str(ws_port))
+    print("  HTTP:      " + url)
     print("\n" + border + "\n")
     sys.stdout.flush()
+
