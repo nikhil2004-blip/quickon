@@ -123,6 +123,20 @@ For distribution:
 
 ---
 
+## Code Review Graph Integration
+
+This repository supports codebase visualization and semantic navigation using the `code-review-graph` tool. 
+
+**What it can do:**
+- Parses the codebase into a local knowledge graph connecting files, classes, functions, and types.
+- Generates beautiful, interactive HTML visualizations of the application architecture and import flows. (Note: In the visualization, nodes like Classes and Functions are collapsed inside File nodes by default to keep the UI clean—just click a file node to reveal them!)
+- Can be used by AI coding assistants as an MCP server, drastically reducing token usage by providing precise impact-radius and structural data instead of raw text.
+
+**Usage:**
+Run `code-review-graph build --repo .` to initialize the database, and `code-review-graph visualize --repo .` to explore the structure.
+
+---
+
 ## Tech Stack
 
 - Backend: Python (`asyncio`, `websockets`, input handlers)
